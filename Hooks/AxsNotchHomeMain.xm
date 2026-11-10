@@ -444,6 +444,26 @@ static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
         double sr = axs_notchhome_probeDouble(scale, @selector(response));
         if (elemClass && strcmp(elemClass, "SBAppLayout") == 0 && strcmp(tag, "attrsG") == 0) {
             if (sW5ACalls < 10 && !isnan(pd)) {
+                @try {
+                    id posSettings = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
+                    id scaleSettings = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
+                    id posCopy = posSettings ? [posSettings mutableCopy] : nil;
+                    axs_notchhome_diagLogF("probe posCls=%s posCopyCls=%s scaleCls=%s setResp=%d setRespCopy=%d setTrackResp=%d pos{trackDamp=%.3f trackResp=%.3f} scale{trackDamp=%.3f trackResp=%.3f}",
+                        posSettings ? object_getClassName(posSettings) : "?",
+                        posCopy ? object_getClassName(posCopy) : "?",
+                        scaleSettings ? object_getClassName(scaleSettings) : "?",
+                        posSettings ? (int)[posSettings respondsToSelector:@selector(setResponse:)] : -1,
+                        posCopy ? (int)[posCopy respondsToSelector:@selector(setResponse:)] : -1,
+                        posSettings ? (int)[posSettings respondsToSelector:@selector(setTrackingResponse:)] : -1,
+                        axs_notchhome_probeDouble(posSettings, @selector(trackingDampingRatio)),
+                        axs_notchhome_probeDouble(posSettings, @selector(trackingResponse)),
+                        axs_notchhome_probeDouble(scaleSettings, @selector(trackingDampingRatio)),
+                        axs_notchhome_probeDouble(scaleSettings, @selector(trackingResponse)));
+                } @catch (NSException *exception) {
+                    axs_notchhome_diagLogF("probe failed");
+                }
+            }
+            if (sW5ACalls < 10 && !isnan(pd)) {
                 long long etype = [element respondsToSelector:@selector(type)]
                     ? axs_notchhome_probeInt(element, @selector(type)) : -999;
                 long long eenv = [element respondsToSelector:@selector(environment)]
@@ -671,7 +691,7 @@ static void axs_notchhome_installAll(void) {
                        @"_performModifierIconOverlayVisibilityUpdateAction:");
     [sAxsNotchHomeSlotVCOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCOverlay
                                                           returnType:"v" argumentTypes:@[@"@"]];
-    axs_notchhome_diagLogF("wrap6 build: ih/hsAlpha phase-split + settings class dumps + layoutSettings probe");
+    axs_notchhome_diagLogF("wrap7 build: settings class/setter/tracking probe");
 }
 
 %ctor {
