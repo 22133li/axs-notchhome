@@ -48,6 +48,7 @@ static const double kAxsNotchHomeOtherScaleResponse = 0.550;
 // gesture-modifier attributes hook uses them to pick set A vs set B.
 static id sAxsNotchHomeCurrentLayout = nil;
 static BOOL sAxsNotchHomeTransitionActive = NO;
+static id sAxsNotchHomeCurrentModifier = nil;
 
 // Notch suction targets, MEASURED from the original tweak's own hook
 // returns (wrap capture on iPhone14,3, bounds 428x926): the original
@@ -87,10 +88,33 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
     return saved;
 }
 
+// Transcribed from the original's geometry workers (frame worker at
+// 0x6ec4, scale/corner identical): the override applies only while
+// began==1, ended==0, finishing!=1, mutationDepth<=0 (no recursion path
+// exists in this implementation, so the depth check is vacuous), the
+// tri-state first-sample field is resolved (!=2) and ==1, a LIVE call of
+// the original _isEffectivelyHome at geometry time returns NO, and the
+// index is the zoom index. The live-call and zoom checks live in the
+// geometry hooks; this predicate carries the cached-field half.
+// startedAtHomeCache here is that tri-state field: written ONLY by the
+// _isEffectivelyHome replacement's backfill (first sample wins), never
+// by the begin handler — disassembly shows exactly two writers of the
+// field in the whole binary (state init -> 2, ih backfill).
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
-           state.began && !state.finishing &&
-           (state.startedAtHomeCache == 0 || state.directionCache == 1);
+           state.began && !state.ended && !state.finishing &&
+           state.startedAtHomeCache == 1;
+}
+
+// Live original _isEffectivelyHome, called through the saved IMP like
+// the original's workers do (their calls bypass their own replacement,
+// so this does not backfill the tri-state).
+static BOOL axs_notchhome_liveIsEffectivelyHome(id self) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotIsHome);
+    if (!orig) {
+        return NO;
+    }
+    return ((BOOL (*)(id, SEL))orig)(self, NSSelectorFromString(@"_isEffectivelyHome"));
 }
 
 static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
@@ -131,9 +155,9 @@ static BOOL axs_notchhome_hookIsEffectivelyHome(id self, SEL _cmd) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotIsHome);
     BOOL result = orig ? ((BOOL (*)(id, SEL))orig)(self, _cmd) : NO;
     if ([NSThread isMainThread]) {
-        AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
-        if (state && state.effectivelyHomeCache == 2) {
-            state.effectivelyHomeCache = result ? 1 : 0;
+        AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, sAxsNotchHomeEnabled);
+        if (state && state.startedAtHomeCache == 2) {
+            state.startedAtHomeCache = result ? 1 : 0;
         }
         // The audit's static read of the original (report section 8):
         // its _isEffectivelyHome replacement NEVER changes the return
@@ -170,12 +194,14 @@ static BOOL axs_notchhome_hookIsEffectivelyHome(id self, SEL _cmd) {
 static unsigned long sStLogFrames = 0;
 
 static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
-    IMP origIsHome = axs_notchhome_savedIMP(sAxsNotchHomeSlotIsHome);
-    if (origIsHome) {
-        BOOL atHome = ((BOOL (*)(id, SEL))origIsHome)(self, NSSelectorFromString(@"_isEffectivelyHome"));
-        state.startedAtHomeCache = atHome ? 1 : 0;
-        state.effectivelyHomeCache = state.startedAtHomeCache;
-    }
+    // NOTE: unlike -37 and earlier, this no longer samples
+    // _isEffectivelyHome into startedAtHomeCache. In the original that
+    // field is written only by the state initializer (=2) and by the
+    // _isEffectivelyHome replacement's first-sample backfill; the begin
+    // pre-handler never touches it (verified in the disassembly: two
+    // writers in the whole binary). Sampling at willBegin read the
+    // signal half a phase late and with inverted results per direction,
+    // which is what closed the gate on folder/switcher/other-page legs.
     state.began = YES;
     state.ended = NO;
     state.finishing = NO;
@@ -207,6 +233,7 @@ static id axs_notchhome_hookTransitionWillBegin(id self, SEL _cmd) {
         @try {
             AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, YES);
             axs_notchhome_captureBegin(self, state);
+            sAxsNotchHomeCurrentModifier = self;
             sAxsNotchHomeTransitionActive = axs_notchhome_stateActive(state);
             sAxsNotchHomeCurrentLayout = nil;
             @try {
@@ -254,6 +281,7 @@ static void axs_notchhome_postFinish(id self) {
             state.appLayout = nil;
         }
         sAxsNotchHomeTransitionActive = NO;
+        sAxsNotchHomeCurrentModifier = nil;
         sAxsNotchHomeCurrentLayout = nil;
     }
 }
@@ -298,6 +326,9 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
+    if (axs_notchhome_liveIsEffectivelyHome(self)) {
+        return original;
+    }
     axs_notchhome_diagFrameActive++;
     if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
@@ -329,6 +360,9 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
+    if (axs_notchhome_liveIsEffectivelyHome(self)) {
+        return original;
+    }
     if (!axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
     }
@@ -344,6 +378,9 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     }
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
     if (!axs_notchhome_stateActive(state)) {
+        return original;
+    }
+    if (axs_notchhome_liveIsEffectivelyHome(self)) {
         return original;
     }
     if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
@@ -389,7 +426,16 @@ static BOOL axs_notchhome_writeSettings(id attributes, SEL settingsGetter,
 static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotAnimAttrs);
     id result = orig ? ((id (*)(id, SEL, id))orig)(self, _cmd, element) : nil;
-    if (!sAxsNotchHomeEnabled || !result || !sAxsNotchHomeTransitionActive || !element) {
+    BOOL transitionActive = sAxsNotchHomeTransitionActive;
+    if (!transitionActive && sAxsNotchHomeCurrentModifier) {
+        // The tri-state first sample can land after willBegin (the
+        // view controller's first _isEffectivelyHome query for the
+        // instance may come later); re-evaluate against the live state
+        // instead of trusting only the willBegin snapshot.
+        transitionActive = axs_notchhome_stateActive(
+            axs_notchhome_stateForObject(sAxsNotchHomeCurrentModifier, NO));
+    }
+    if (!sAxsNotchHomeEnabled || !result || !transitionActive || !element) {
         return result;
     }
     // Only SBAppLayout elements carry fluid settings in this flow; the
