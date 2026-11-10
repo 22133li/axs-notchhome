@@ -49,6 +49,32 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotOpacityRole;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrsT;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrsZ;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotHomeAlpha;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotIconVis;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCVis;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCMatch;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCOverlay;
+
+// Wrap5 per-transition discriminators (reset at willBegin / postFinish).
+static id sW5ZoomLayout = nil;
+static double sW5MinScale = 9.0;
+static double sW5ZoomScale = -1.0;
+static long long sW5IconVis = -1;
+static long long sW5MatchMove = -1;
+static NSUInteger sW5VCVis = 0;
+static NSUInteger sW5VCMatch = 0;
+static NSUInteger sW5VCOverlay = 0;
+static NSUInteger sW5ACalls = 0;
+
+static void axs_notchhome_w5Reset(void) {
+    sW5MinScale = 9.0;
+    sW5ZoomScale = -1.0;
+    sW5IconVis = -1;
+    sW5MatchMove = -1;
+    sW5VCVis = 0;
+    sW5VCMatch = 0;
+    sW5VCOverlay = 0;
+    sW5ACalls = 0;
+}
 
 
 
@@ -107,6 +133,13 @@ static id axs_notchhome_hookTransitionWillBegin(id self, SEL _cmd) {
         @try {
             AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, YES);
             axs_notchhome_captureBegin(self, state);
+            axs_notchhome_w5Reset();
+            sW5ZoomLayout = nil;
+            @try {
+                sW5ZoomLayout = [self valueForKey:@"appLayout"];
+            } @catch (NSException *exception) {
+                sW5ZoomLayout = nil;
+            }
             axs_notchhome_diagLastStartedAtHome = state.startedAtHomeCache;
             axs_notchhome_diagLastBoundsOK = state.cachedBoundsValid ? 1 : 0;
         } @catch (NSException *exception) {
@@ -142,6 +175,9 @@ static void axs_notchhome_postFinish(id self) {
         sSumAttrsG[0], sSumAttrsG[1], sSumAttrsG[2], sSumAttrsG[3],
         sSumAttrsT[0], sSumAttrsT[1], sSumAttrsT[2], sSumAttrsT[3],
         sSumOpR[0], sSumOpR[1], sSumHsSeen ? sSumHsMin : -1.0);
+    axs_notchhome_diagLogF("sum2 minS=%.3f zoomS=%.3f iconVis=%lld matchM=%lld vc{v=%lu m=%lu o=%lu}",
+        sW5MinScale > 8.0 ? -1.0 : sW5MinScale, sW5ZoomScale, sW5IconVis, sW5MatchMove,
+        (unsigned long)sW5VCVis, (unsigned long)sW5VCMatch, (unsigned long)sW5VCOverlay);
     sSumAttrsGValid = NO; sSumAttrsTValid = NO;
     sSumAttrsG[0] = sSumAttrsG[1] = sSumAttrsG[2] = sSumAttrsG[3] = -1;
     sSumAttrsT[0] = sSumAttrsT[1] = sSumAttrsT[2] = sSumAttrsT[3] = -1;
@@ -207,6 +243,19 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     axs_notchhome_diagScaleCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotScale);
     double original = orig ? ((double (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : 1.0;
+    if (original < sW5MinScale) {
+        sW5MinScale = original;
+    }
+    @try {
+        SEL zoomSel = NSSelectorFromString(@"_isIndexZoomAppLayout:");
+        if ([self respondsToSelector:zoomSel]) {
+            BOOL isZoom = ((BOOL (*)(id, SEL, NSUInteger))objc_msgSend)(self, zoomSel, index);
+            if (isZoom) {
+                sW5ZoomScale = original;
+            }
+        }
+    } @catch (NSException *exception) {
+    }
     return original;
 }
 
@@ -255,11 +304,39 @@ static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
     axs_notchhome_diagMatchCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotMatchMove);
     BOOL original = orig ? ((BOOL (*)(id, SEL))orig)(self, _cmd) : NO;
-    AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
-    if (axs_notchhome_stateActive(state)) {
-        return YES;
-    }
+    sW5MatchMove = original ? 1 : 0;
     return original;
+}
+
+static BOOL axs_notchhome_hookIconVis(id self, SEL _cmd) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotIconVis);
+    BOOL original = orig ? ((BOOL (*)(id, SEL))orig)(self, _cmd) : NO;
+    sW5IconVis = original ? 1 : 0;
+    return original;
+}
+
+static void axs_notchhome_hookVCVis(id self, SEL _cmd, id action) {
+    sW5VCVis++;
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotVCVis);
+    if (orig) {
+        ((void (*)(id, SEL, id))orig)(self, _cmd, action);
+    }
+}
+
+static void axs_notchhome_hookVCMatch(id self, SEL _cmd, id action) {
+    sW5VCMatch++;
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotVCMatch);
+    if (orig) {
+        ((void (*)(id, SEL, id))orig)(self, _cmd, action);
+    }
+}
+
+static void axs_notchhome_hookVCOverlay(id self, SEL _cmd, id action) {
+    sW5VCOverlay++;
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotVCOverlay);
+    if (orig) {
+        ((void (*)(id, SEL, id))orig)(self, _cmd, action);
+    }
 }
 
 static double axs_notchhome_probeDouble(id object, SEL selector) {
@@ -296,6 +373,19 @@ static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
         double pr = axs_notchhome_probeDouble(position, @selector(response));
         double sd = axs_notchhome_probeDouble(scale, @selector(dampingRatio));
         double sr = axs_notchhome_probeDouble(scale, @selector(response));
+        if (elemClass && strcmp(elemClass, "SBAppLayout") == 0 && strcmp(tag, "attrsG") == 0) {
+            if (sW5ACalls < 10 && !isnan(pd)) {
+                long long etype = [element respondsToSelector:@selector(type)]
+                    ? axs_notchhome_probeInt(element, @selector(type)) : -999;
+                long long eenv = [element respondsToSelector:@selector(environment)]
+                    ? axs_notchhome_probeInt(element, @selector(environment)) : -999;
+                axs_notchhome_diagLogF("aCall n=%lu elem=%p zoom=%d type=%lld env=%lld -> {%.3f %.3f %.3f %.3f}",
+                    (unsigned long)sW5ACalls, element,
+                    sW5ZoomLayout ? (element == sW5ZoomLayout ? 1 : 0) : -1,
+                    etype, eenv, pd, pr, sd, sr);
+            }
+            sW5ACalls++;
+        }
         if (elemClass && strcmp(elemClass, "SBAppLayout") == 0 && !isnan(pd)) {
             double *dst = NULL;
             if (strcmp(tag, "attrsG") == 0) { dst = sSumAttrsG; sSumAttrsGValid = YES; }
@@ -484,7 +574,24 @@ static void axs_notchhome_installAll(void) {
     axs_notchhome_slot(&sAxsNotchHomeSlotHomeAlpha, modifier, @"homeScreenAlpha");
     [sAxsNotchHomeSlotHomeAlpha axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookHomeScreenAlpha
                                                           returnType:"d" argumentTypes:@[]];
-    axs_notchhome_diagLogF("wrap4 build: per-transition summary lines");
+
+    axs_notchhome_slot(&sAxsNotchHomeSlotIconVis, modifier, @"shouldUpdateIconViewVisibility");
+    [sAxsNotchHomeSlotIconVis axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookIconVis
+                                                        returnType:"B" argumentTypes:@[]];
+
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCVis, kAxsNotchHomeFluidVCClass,
+                       @"_performModifierIconViewVisibilityUpdateAction:");
+    [sAxsNotchHomeSlotVCVis axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCVis
+                                                      returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCMatch, kAxsNotchHomeFluidVCClass,
+                       @"_performModifierMatchMoveToIconViewAction:");
+    [sAxsNotchHomeSlotVCMatch axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCMatch
+                                                        returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCOverlay, kAxsNotchHomeFluidVCClass,
+                       @"_performModifierIconOverlayVisibilityUpdateAction:");
+    [sAxsNotchHomeSlotVCOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCOverlay
+                                                          returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_diagLogF("wrap5 build: element identity + icon flags + VC actions + scale tracking");
 }
 
 %ctor {
