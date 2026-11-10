@@ -26,17 +26,8 @@ static const char *const kAxsNotchHomeRadiiEncoding = "{UIRectCornerRadii=dddd}"
 // and applied in its animation-attributes region. Per-constant semantics
 // were not statically closed, so these are the documented approximation:
 // position damping 1.28, scale damping 0.97.
-static const double kAxsNotchHomePositionDamping = 1.28;
-static const double kAxsNotchHomeScaleDamping = 0.97;
 
-// Notch suction targets, MEASURED from the original tweak's own hook
-// returns (wrap capture on iPhone14,3, bounds 428x926): the original
-// returns the fullscreen-sized frame recentered to (boundsW/2, -30),
-// scale 0.061 (stock: 428x428 at icon center, scale 0.150), and corner
-// radii = boundsW * 0.2 = 85.6 on this device.
-static const double kAxsNotchHomeNotchCenterY = -30.0;
-static const double kAxsNotchHomeNotchScale = 0.061;
-static const double kAxsNotchHomeNotchRadiusFactor = 0.2;
+
 
 
 
@@ -52,9 +43,9 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotScale;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotMatchMove;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotOpacityIndex;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotOpacityRole;
 
-// Direct (non-hooked) lookup: which layout index is the app being zoomed.
-static IMP sAxsNotchHomeZoomCheckIMP = NULL;
 
 
 
@@ -71,14 +62,6 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
            state.began && !state.finishing && state.startedAtHomeCache == 0;
-}
-
-static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
-    if (sAxsNotchHomeZoomCheckIMP) {
-        return ((BOOL (*)(id, SEL, NSUInteger))sAxsNotchHomeZoomCheckIMP)(
-            modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
-    }
-    return index == 0;
 }
 
 #pragma mark - Hook implementations
@@ -190,44 +173,17 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotFrame);
     CGRect original = orig ? ((CGRect (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : CGRectZero;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
-    if (!axs_notchhome_stateActive(state)) {
-        return original;
+    if (axs_notchhome_stateActive(state)) {
+        axs_notchhome_diagFrameActive++;
     }
-    axs_notchhome_diagFrameActive++;
-    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
-        return original;
-    }
-    static NSUInteger notchLogs = 0;
-    if (notchLogs < 20) {
-        notchLogs++;
-        axs_notchhome_diagLogF("notch idx=%lu from=(%.0f,%.0f,%.0f,%.0f)",
-            (unsigned long)index,
-            CGRectGetMinX(original), CGRectGetMinY(original),
-            CGRectGetWidth(original), CGRectGetHeight(original));
-    }
-    axs_notchhome_diagIconOK++;
-    CGFloat w = CGRectGetWidth(state.cachedBounds);
-    CGFloat h = CGRectGetHeight(state.cachedBounds);
-    return CGRectMake(w / 2.0 - w / 2.0, kAxsNotchHomeNotchCenterY - h / 2.0, w, h);
+    return original;
 }
 
 static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     axs_notchhome_diagScaleCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotScale);
     double original = orig ? ((double (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : 1.0;
-    AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
-    if (state && index == 0) {
-        state.lastOrigScale0 = original;
-    } else if (state && index == 1) {
-        state.lastOrigScale1 = original;
-    }
-    if (!axs_notchhome_stateActive(state)) {
-        return original;
-    }
-    if (!axs_notchhome_isZoomIndex(self, index)) {
-        return original;
-    }
-    return kAxsNotchHomeNotchScale;
+    return original;
 }
 
 static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUInteger index) {
@@ -237,16 +193,35 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (orig) {
         original = ((AxsNotchHomeCornerRadii (*)(id, SEL, NSUInteger))orig)(self, _cmd, index);
     }
+    return original;
+}
+
+static double axs_notchhome_hookOpacityIndex(id self, SEL _cmd, NSUInteger index) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotOpacityIndex);
+    double original = orig ? ((double (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : 1.0;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
-    if (!axs_notchhome_stateActive(state)) {
-        return original;
+    if (axs_notchhome_stateActive(state)) {
+        static NSUInteger samples = 0;
+        if (samples < 80) {
+            samples++;
+            axs_notchhome_diagLogF("op idx=%lu -> %.3f", (unsigned long)index, original);
+        }
     }
-    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
-        return original;
+    return original;
+}
+
+static double axs_notchhome_hookOpacityRole(id self, SEL _cmd, long long role, id appLayout, NSUInteger index) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotOpacityRole);
+    double original = orig ? ((double (*)(id, SEL, long long, id, NSUInteger))orig)(self, _cmd, role, appLayout, index) : 1.0;
+    AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
+    if (axs_notchhome_stateActive(state)) {
+        static NSUInteger samples = 0;
+        if (samples < 80) {
+            samples++;
+            axs_notchhome_diagLogF("opR role=%lld idx=%lu -> %.3f", role, (unsigned long)index, original);
+        }
     }
-    double radius = CGRectGetWidth(state.cachedBounds) * kAxsNotchHomeNotchRadiusFactor;
-    AxsNotchHomeCornerRadii radii = {radius, radius, radius, radius};
-    return radii;
+    return original;
 }
 
 static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
@@ -260,6 +235,28 @@ static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
     return original;
 }
 
+static double axs_notchhome_probeDouble(id object, SEL selector) {
+    if (object && [object respondsToSelector:selector]) {
+        @try {
+            return ((double (*)(id, SEL))objc_msgSend)(object, selector);
+        } @catch (NSException *exception) {
+            return NAN;
+        }
+    }
+    return NAN;
+}
+
+static long long axs_notchhome_probeInt(id object, SEL selector) {
+    if (object && [object respondsToSelector:selector]) {
+        @try {
+            return ((long long (*)(id, SEL))objc_msgSend)(object, selector);
+        } @catch (NSException *exception) {
+            return -999;
+        }
+    }
+    return -999;
+}
+
 static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotAnimAttrs);
     id result = orig ? ((id (*)(id, SEL, id))orig)(self, _cmd, element) : nil;
@@ -267,43 +264,25 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
         return result;
     }
     axs_notchhome_diagAnimCalls++;
-    // On iOS 15.4 the real attributes object does not necessarily respond
-    // to the settings accessors the original binary referenced; the first
-    // build crashed SpringBoard with an unrecognized-selector exception
-    // here. Every private call is guarded, and no exception may escape.
-    @try {
-        SBSwitcherAnimationAttributes *attributes = (SBSwitcherAnimationAttributes *)result;
-        if (![attributes respondsToSelector:@selector(positionSettings)] ||
-            ![attributes respondsToSelector:@selector(scaleSettings)]) {
-            axs_notchhome_diagAnimSkip++;
-            return result;
+    static NSUInteger samples = 0;
+    if (samples < 40) {
+        samples++;
+        @try {
+            id attributes = result;
+            id position = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
+            id scale = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
+            axs_notchhome_diagLogF("attrs pos{damp=%.3f resp=%.3f} scale{damp=%.3f resp=%.3f} pMode=%lld sMode=%lld",
+                axs_notchhome_probeDouble(position, @selector(dampingRatio)),
+                axs_notchhome_probeDouble(position, @selector(response)),
+                axs_notchhome_probeDouble(scale, @selector(dampingRatio)),
+                axs_notchhome_probeDouble(scale, @selector(response)),
+                axs_notchhome_probeInt(attributes, @selector(positionUpdateMode)),
+                axs_notchhome_probeInt(attributes, @selector(scaleUpdateMode)));
+        } @catch (NSException *exception) {
+            axs_notchhome_diagLogF("attrs probe failed");
         }
-        SBSwitcherAnimationAttributes *copy = [attributes mutableCopy];
-        if (!copy) {
-            return result;
-        }
-        SBFFluidBehaviorSettings *position = [copy positionSettings];
-        if (position && [position respondsToSelector:@selector(setDampingRatio:)] &&
-            [copy respondsToSelector:@selector(setPositionSettings:)]) {
-            SBFFluidBehaviorSettings *positionCopy = [position mutableCopy];
-            if (positionCopy) {
-                [positionCopy setDampingRatio:kAxsNotchHomePositionDamping];
-                [copy setPositionSettings:positionCopy];
-            }
-        }
-        SBFFluidBehaviorSettings *scale = [copy scaleSettings];
-        if (scale && [scale respondsToSelector:@selector(setDampingRatio:)] &&
-            [copy respondsToSelector:@selector(setScaleSettings:)]) {
-            SBFFluidBehaviorSettings *scaleCopy = [scale mutableCopy];
-            if (scaleCopy) {
-                [scaleCopy setDampingRatio:kAxsNotchHomeScaleDamping];
-                [copy setScaleSettings:scaleCopy];
-            }
-        }
-        return copy;
-    } @catch (NSException *exception) {
-        return result;
     }
+    return result;
 }
 
 
@@ -412,11 +391,13 @@ static void axs_notchhome_installAll(void) {
     [sAxsNotchHomeSlotAnimAttrs axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributes
                                                           returnType:"@" argumentTypes:@[@"@"]];
 
-    if (!sAxsNotchHomeZoomCheckIMP) {
-        sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
-                                                            "B", @[@"Q"]);
-    }
-    axs_notchhome_diagLogF("lookups: zoomCheckIMP=%p", (void *)sAxsNotchHomeZoomCheckIMP);
+    axs_notchhome_slot(&sAxsNotchHomeSlotOpacityIndex, modifier, @"opacityForIndex:");
+    [sAxsNotchHomeSlotOpacityIndex axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookOpacityIndex
+                                                            returnType:"d" argumentTypes:@[@"Q"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotOpacityRole, modifier, @"opacityForLayoutRole:inAppLayout:atIndex:");
+    [sAxsNotchHomeSlotOpacityRole axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookOpacityRole
+                                                           returnType:"d" argumentTypes:@[@"q", @"@", @"Q"]];
+    axs_notchhome_diagLogF("wrap2 build: opacity + attrs passthrough logging");
 }
 
 %ctor {
