@@ -125,28 +125,16 @@ static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
     return index == 0;
 }
 
-// The index the notch override applies to: the system's zoom index when
-// one exists; when a leg has no zoom index at all (the app's icon is not
-// on the presented page — other page, folder, switcher entry), the
-// foreground layout, which is index 0 in every measured transition.
-// Probed once per leg and cached on the state.
+// The index the notch override applies to. Parity fix (-39): the
+// original's workers require _isIndexZoomAppLayout: == YES for the
+// index, with no fallback (verified in the frame and scale workers'
+// gate code). The foreground-index fallback added in -36 for legs with
+// no zoom index was a deviation and is removed; measured folder,
+// other-page and switcher legs all carry a zoom index, so the scope
+// the user asked for is unaffected.
 static BOOL axs_notchhome_isTargetIndex(id self, AxsNotchHomeZoomState *state, NSUInteger index) {
-    if (!state) {
-        return axs_notchhome_isZoomIndex(self, index);
-    }
-    if (state.zoomIndexCache == -2) {
-        state.zoomIndexCache = -1;
-        for (NSUInteger i = 0; i < 8; i++) {
-            if (axs_notchhome_isZoomIndex(self, i)) {
-                state.zoomIndexCache = (NSInteger)i;
-                break;
-            }
-        }
-        if (state.zoomIndexCache == -1) {
-            state.zoomIndexCache = 0;
-        }
-    }
-    return (NSInteger)index == state.zoomIndexCache;
+    (void)state;
+    return axs_notchhome_isZoomIndex(self, index);
 }
 
 #pragma mark - Hook implementations
@@ -461,10 +449,16 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
                                                          posDamping, posResponse);
         BOOL wroteScale = axs_notchhome_writeSettings(copy, @selector(scaleSettings),
                                                       scaleDamping, scaleResponse);
-        // Measured from the original (wrap8): it also fixes the layout
-        // settings at damping 1.100 / response 0.433 for BOTH elements,
-        // where stock computes jittered values per gesture.
-        axs_notchhome_writeSettings(copy, @selector(layoutSettings), 1.100, 0.433);
+        // Parity fix (-39): the layout settings group is NOT written.
+        // The original's dylib contains no reference to layoutSettings
+        // or layoutSettingsForTargetCenter: at all (no string, no
+        // fragment); the constant layout values wrap8 measured in the
+        // original's sessions are the view controller's own computation
+        // downstream of the changed geometry (its target centers move
+        // to the notch path), not a write. The direct write added in
+        // -32 (1.100/0.433 for both elements) was a mechanism deviation
+        // and is removed; with the geometry transcribed, the stock
+        // computation produces the original's values on its own.
         if (!wrotePosition && !wroteScale) {
             axs_notchhome_diagAnimSkip++;
             return result;
