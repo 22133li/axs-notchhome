@@ -353,6 +353,30 @@ static void axs_notchhome_diagSlot(AxsNotchHomeHookSlot *slot) {
     free(returnType);
 }
 
+static void axs_notchhome_diagDumpClass(NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        axs_notchhome_diagLogF("dump %s: class-missing", className.UTF8String);
+        return;
+    }
+    unsigned count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    axs_notchhome_diagLogF("dump %s: %u methods (filtered)", className.UTF8String, count);
+    for (unsigned i = 0; i < count; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        NSString *lower = [name lowercaseString];
+        if ([lower containsString:@"icon"] || [lower containsString:@"frame"] ||
+            [lower containsString:@"radius"] || [lower containsString:@"radii"] ||
+            [lower containsString:@"zoom"] || [lower containsString:@"home"] ||
+            [lower containsString:@"match"] || [lower containsString:@"corner"] ||
+            [lower containsString:@"layout"]) {
+            const char *types = method_getTypeEncoding(methods[i]);
+            axs_notchhome_diagLogF("  %s %s", name.UTF8String, types ? types : "?");
+        }
+    }
+    free(methods);
+}
+
 #pragma mark - Installation
 
 static AxsNotchHomeHookSlot *axs_notchhome_slot(AxsNotchHomeHookSlot *__strong *slot,
@@ -365,6 +389,13 @@ static AxsNotchHomeHookSlot *axs_notchhome_slot(AxsNotchHomeHookSlot *__strong *
 
 static void axs_notchhome_installAll(void) {
     NSString *modifier = kAxsNotchHomeModifierClass;
+    static BOOL dumped = NO;
+    if (!dumped) {
+        dumped = YES;
+        axs_notchhome_diagDumpClass(kAxsNotchHomeModifierClass);
+        axs_notchhome_diagDumpClass(@"SBTransitionSwitcherModifier");
+        axs_notchhome_diagDumpClass(kAxsNotchHomeGestureModifierClass);
+    }
 
     axs_notchhome_slot(&sAxsNotchHomeSlotIsHome, modifier, @"_isEffectivelyHome");
     [sAxsNotchHomeSlotIsHome axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookIsEffectivelyHome
