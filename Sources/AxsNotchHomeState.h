@@ -13,6 +13,7 @@
 @property (nonatomic, assign) NSInteger directionCache;
 @property (nonatomic, assign) NSInteger zoomIndexCache;
 @property (nonatomic, assign) NSInteger effectivelyHomeCache;
+@property (nonatomic, assign) BOOL notchCloseLatched;
 @property (nonatomic, assign) BOOL began;
 @property (nonatomic, assign) BOOL ended;
 @property (nonatomic, assign) BOOL finishing;

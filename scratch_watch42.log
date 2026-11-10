@@ -1,0 +1,175 @@
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870934570
+Triggered via push less than a minute ago
+
+JOBS
+* Build (roothide) (ID 130021699688)
+* Build (rootless) (ID 130021700128)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  * Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870934570
+Triggered via push less than a minute ago
+
+JOBS
+* Build (roothide) (ID 130021699688)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+* Build (rootless) (ID 130021700128)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870934570
+Triggered via push about 1 minute ago
+
+JOBS
+* Build (roothide) (ID 130021699688)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+* Build (rootless) (ID 130021700128)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870934570
+Triggered via push about 1 minute ago
+
+JOBS
+* Build (roothide) (ID 130021699688)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+✓ Build (rootless) in 1m22s (ID 130021700128)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  ✓ Build Package
+  ✓ Upload Artifacts
+  ✓ Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4, softprops/action-gh-release@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Build (rootless): .github#4
+
+! `$HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set: not checking for outdated
+dependents or dependents with broken linkage!
+
+Build (rootless): .github#13
+
+- Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.
+Build (rootless): .github#1
+
+✓ main Build NotchHome · 42870934570
+Triggered via push about 1 minute ago
+
+JOBS
+✓ Build (roothide) in 1m26s (ID 130021699688)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  ✓ Build Package
+  ✓ Upload Artifacts
+  ✓ Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
+✓ Build (rootless) in 1m22s (ID 130021700128)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  ✓ Build Package
+  ✓ Upload Artifacts
+  ✓ Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4, softprops/action-gh-release@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Build (rootless): .github#4
+
+! `$HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set: not checking for outdated
+dependents or dependents with broken linkage!
+
+Build (rootless): .github#13
+
+- Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.
+Build (rootless): .github#1
+
