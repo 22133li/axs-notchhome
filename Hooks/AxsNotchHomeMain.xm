@@ -135,11 +135,16 @@ static BOOL axs_notchhome_hookIsEffectivelyHome(id self, SEL _cmd) {
         if (state && state.effectivelyHomeCache == 2) {
             state.effectivelyHomeCache = result ? 1 : 0;
         }
-        // Measured from the original (wrap6): during an app-to-home
-        // transition _isEffectivelyHome returns YES on every call (76/0).
-        // Mirror the original: while the notch state is active the
-        // answer is YES.
-        BOOL ret = axs_notchhome_stateActive(state) ? YES : result;
+        // The audit's static read of the original (report section 8):
+        // its _isEffectivelyHome replacement NEVER changes the return
+        // value — it only backfills the tri-state cache field when it is
+        // still unknown (== 2). The YES-forcing this hook did from -28
+        // to -36 was an inference from wrap counts and is a deviation;
+        // it also feeds the switcher view controller "home presented"
+        // answers during legs where that is false, which can derail
+        // its transition setup for the following home leg. Removed:
+        // this hook now returns the original value, like the original.
+        BOOL ret = result;
         // stlog2 (diagnostic only): record every flip of the stock
         // answer per instance, plus nil-state calls, so the switcher
         // sequence's capture timing can be read off the log.
