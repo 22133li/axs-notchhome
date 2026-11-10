@@ -480,6 +480,7 @@ static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
                 } @catch (NSException *exception) {
                     axs_notchhome_diagLogF("slots probe failed");
                 }
+            }
             if (sW5ACalls < 10 && !isnan(pd)) {
                 long long etype = [element respondsToSelector:@selector(type)]
                     ? axs_notchhome_probeInt(element, @selector(type)) : -999;
