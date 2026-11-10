@@ -540,7 +540,7 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
             callOrig(self, _cmd, action);
             return;
         }
-        unsigned char *bytePtr = (unsigned char *)action + ivar_getOffset(ivar);
+        unsigned char *bytePtr = (unsigned char *)(__bridge void *)action + ivar_getOffset(ivar);
         if (*bytePtr != 1) {
             called = YES;
             callOrig(self, _cmd, action);

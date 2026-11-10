@@ -1,0 +1,178 @@
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push less than a minute ago
+
+JOBS
+* Build (rootless) (ID 130019834839)
+* Build (roothide) (ID 130019835646)
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push less than a minute ago
+
+JOBS
+* Build (rootless) (ID 130019834839)
+* Build (roothide) (ID 130019835646)
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push about 1 minute ago
+
+JOBS
+* Build (rootless) (ID 130019834839)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  * Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+* Build (roothide) (ID 130019835646)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  * Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push about 1 minute ago
+
+JOBS
+* Build (rootless) (ID 130019834839)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+* Build (roothide) (ID 130019835646)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  * Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push about 1 minute ago
+
+JOBS
+* Build (rootless) (ID 130019834839)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+* Build (roothide) (ID 130019835646)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  * Install Theos dependencies
+  * Build Package
+  * Upload Artifacts
+  * Create Release
+  * Post Checkout Theos (RootHide)
+  * Post Checkout
+Refreshing run status every 25 seconds. Press Ctrl+C to quit.
+
+* main Build NotchHome · 42870399744
+Triggered via push about 2 minutes ago
+
+JOBS
+X Build (rootless) in 1m33s (ID 130019834839)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  X Build Package
+  - Upload Artifacts
+  - Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
+* Build (roothide) (ID 130019835646)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  X Build Package
+  - Upload Artifacts
+  - Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  * Complete job
+X main Build NotchHome · 42870399744
+Triggered via push about 2 minutes ago
+
+JOBS
+X Build (rootless) in 1m33s (ID 130019834839)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  X Build Package
+  - Upload Artifacts
+  - Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
+X Build (roothide) in 1m35s (ID 130019835646)
+  ✓ Set up job
+  ✓ Checkout
+  ✓ Setup Environment
+  ✓ Bump Package Version
+  ✓ Checkout Theos (RootHide)
+  ✓ Install iOS SDK (iPhoneOS16.5)
+  ✓ Install Theos dependencies
+  X Build Package
+  - Upload Artifacts
+  - Create Release
+  ✓ Post Checkout Theos (RootHide)
+  ✓ Post Checkout
+  ✓ Complete job
