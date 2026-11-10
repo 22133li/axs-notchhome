@@ -313,38 +313,6 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     }
 }
 
-static void axs_notchhome_diagSlot(AxsNotchHomeHookSlot *slot) {
-    if (!slot) {
-        axs_notchhome_diagLogF("slot: (nil)");
-        return;
-    }
-    const char *clsName = slot.className.UTF8String;
-    const char *selName = slot.selectorName.UTF8String;
-    Class cls = NSClassFromString(slot.className);
-    if (!cls) {
-        axs_notchhome_diagLogF("slot %s.%s installed=%d stage=class-missing", clsName, selName, (int)slot.installed);
-        return;
-    }
-    Method method = class_getInstanceMethod(cls, NSSelectorFromString(slot.selectorName));
-    if (!method) {
-        axs_notchhome_diagLogF("slot %s.%s installed=%d stage=method-missing", clsName, selName, (int)slot.installed);
-        return;
-    }
-    char *returnType = method_copyReturnType(method);
-    char args[256] = {0};
-    unsigned argc = method_getNumberOfArguments(method);
-    for (unsigned i = 2; i < argc && i < 10; i++) {
-        char *argType = method_copyArgumentType(method, i);
-        if (argType) {
-            strncat(args, argType, sizeof(args) - strlen(args) - 2);
-            strncat(args, ",", sizeof(args) - strlen(args) - 1);
-            free(argType);
-        }
-    }
-    axs_notchhome_diagLogF("slot %s.%s installed=%d types ret=%s args=%s argc=%u",
-        clsName, selName, (int)slot.installed, returnType ? returnType : "?", args, argc);
-    free(returnType);
-}
 
 static void axs_notchhome_diagDumpClass(NSString *className) {
     Class cls = NSClassFromString(className);
