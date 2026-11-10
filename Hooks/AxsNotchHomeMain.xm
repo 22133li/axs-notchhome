@@ -89,7 +89,8 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
 
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
-           state.began && !state.finishing && state.startedAtHomeCache == 0;
+           state.began && !state.finishing &&
+           (state.startedAtHomeCache == 0 || state.directionCache == 1);
 }
 
 static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
@@ -98,6 +99,30 @@ static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
             modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
     }
     return index == 0;
+}
+
+// The index the notch override applies to: the system's zoom index when
+// one exists; when a leg has no zoom index at all (the app's icon is not
+// on the presented page — other page, folder, switcher entry), the
+// foreground layout, which is index 0 in every measured transition.
+// Probed once per leg and cached on the state.
+static BOOL axs_notchhome_isTargetIndex(id self, AxsNotchHomeZoomState *state, NSUInteger index) {
+    if (!state) {
+        return axs_notchhome_isZoomIndex(self, index);
+    }
+    if (state.zoomIndexCache == -2) {
+        state.zoomIndexCache = -1;
+        for (NSUInteger i = 0; i < 8; i++) {
+            if (axs_notchhome_isZoomIndex(self, i)) {
+                state.zoomIndexCache = (NSInteger)i;
+                break;
+            }
+        }
+        if (state.zoomIndexCache == -1) {
+            state.zoomIndexCache = 0;
+        }
+    }
+    return (NSInteger)index == state.zoomIndexCache;
 }
 
 #pragma mark - Hook implementations
@@ -165,6 +190,8 @@ static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
     } @catch (NSException *exception) {
         dirValue = -8;
     }
+    state.directionCache = dirValue;
+    state.zoomIndexCache = -2;
     axs_notchhome_diagLogF("stlog begin self=%p started=%lld dir=%lld layout=%p", self,
         (long long)state.startedAtHomeCache, dirValue, state.appLayout);
 }
@@ -267,7 +294,7 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
-    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
+    if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
     }
     static NSUInteger notchLogs = 0;
@@ -297,7 +324,7 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (!axs_notchhome_isZoomIndex(self, index)) {
+    if (!axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
     }
     return kAxsNotchHomeNotchScale;
@@ -314,7 +341,7 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
+    if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
     }
     double radius = CGRectGetWidth(state.cachedBounds) * kAxsNotchHomeNotchRadiusFactor;
