@@ -9,6 +9,7 @@
 // original used the byte value 2 as its "unknown" sentinel).
 @interface AxsNotchHomeZoomState : NSObject
 @property (nonatomic, assign) NSInteger startedAtHomeCache;
+@property (nonatomic, assign) NSInteger ihLastLogged;
 @property (nonatomic, assign) NSInteger effectivelyHomeCache;
 @property (nonatomic, assign) BOOL began;
 @property (nonatomic, assign) BOOL ended;

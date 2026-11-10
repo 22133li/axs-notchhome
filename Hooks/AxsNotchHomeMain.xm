@@ -111,15 +111,28 @@ static BOOL axs_notchhome_hookIsEffectivelyHome(id self, SEL _cmd) {
             state.effectivelyHomeCache = result ? 1 : 0;
         }
         // Measured from the original (wrap6): during an app-to-home
-        // transition _isEffectivelyHome returns YES on every call (76/0),
-        // while stock leaks a couple of NO answers at the start (which
-        // leave the home screen half-presented: dimmed icons, a flash of
-        // the leaving app, and zoom participation missing for apps from
-        // other pages and folders). Mirror the original: while the notch
-        // state is active the answer is YES.
-        if (axs_notchhome_stateActive(state)) {
-            return YES;
+        // transition _isEffectivelyHome returns YES on every call (76/0).
+        // Mirror the original: while the notch state is active the
+        // answer is YES.
+        BOOL ret = axs_notchhome_stateActive(state) ? YES : result;
+        // stlog2 (diagnostic only): record every flip of the stock
+        // answer per instance, plus nil-state calls, so the switcher
+        // sequence's capture timing can be read off the log.
+        if (state) {
+            if ((long long)(result ? 1 : 0) != state.ihLastLogged) {
+                state.ihLastLogged = result ? 1 : 0;
+                axs_notchhome_diagLogF("ihlog self=%p orig=%d cache=%lld ret=%d", self,
+                    result ? 1 : 0, (long long)state.startedAtHomeCache, ret ? 1 : 0);
+            }
+        } else {
+            static NSInteger sIhNilLast = -1;
+            if ((long long)(result ? 1 : 0) != sIhNilLast) {
+                sIhNilLast = result ? 1 : 0;
+                axs_notchhome_diagLogF("ihlog self=%p orig=%d cache=-9 ret=%d", self,
+                    result ? 1 : 0, ret ? 1 : 0);
+            }
         }
+        return ret;
     }
     return result;
 }
@@ -142,6 +155,7 @@ static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
     state.cachedBounds = bounds;
     state.cachedBoundsValid = axs_notchhome_isPlausibleBounds(bounds);
     sStLogFrames = 0;
+    state.ihLastLogged = -1;
     axs_notchhome_diagLogF("stlog begin self=%p started=%lld", self,
         (long long)state.startedAtHomeCache);
 }
@@ -205,6 +219,7 @@ static void axs_notchhome_postFinish(id self) {
 
 static id axs_notchhome_hookTransitionDidEnd(id self, SEL _cmd) {
     if (sAxsNotchHomeEnabled) {
+        axs_notchhome_diagLogF("stlog end self=%p", self);
         axs_notchhome_preFinish(self);
     }
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotDidEnd);
