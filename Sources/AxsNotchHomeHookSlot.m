@@ -51,19 +51,13 @@ static BOOL axs_notchhome_validateMethod(Method method, const char *returnType,
 @implementation AxsNotchHomeHookSlot
 
 + (instancetype)axs_notchhome_slotWithClassName:(NSString *)className selectorName:(NSString *)selectorName {
-    return [[self alloc] axs_notchhome_initWithClassName:className selectorName:selectorName];
-}
-
-- (instancetype)axs_notchhome_initWithClassName:(NSString *)className selectorName:(NSString *)selectorName {
-    self = [super init];
-    if (self) {
-        _className = [className copy];
-        _selectorName = [selectorName copy];
-        _lock = [[NSLock alloc] init];
-        _saved = NULL;
-        _installed = NO;
-    }
-    return self;
+    AxsNotchHomeHookSlot *slot = [[self alloc] init];
+    slot.className = className;
+    slot.selectorName = selectorName;
+    slot.lock = [[NSLock alloc] init];
+    slot.saved = NULL;
+    slot.installed = NO;
+    return slot;
 }
 
 - (BOOL)axs_notchhome_installWithReplacement:(IMP)replacement
