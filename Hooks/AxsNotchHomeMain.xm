@@ -29,6 +29,15 @@ static const char *const kAxsNotchHomeRadiiEncoding = "{UIRectCornerRadii=dddd}"
 static const double kAxsNotchHomePositionDamping = 1.28;
 static const double kAxsNotchHomeScaleDamping = 0.97;
 
+// Notch suction targets, MEASURED from the original tweak's own hook
+// returns (wrap capture on iPhone14,3, bounds 428x926): the original
+// returns the fullscreen-sized frame recentered to (boundsW/2, -30),
+// scale 0.061 (stock: 428x428 at icon center, scale 0.150), and corner
+// radii = boundsW * 0.2 = 85.6 on this device.
+static const double kAxsNotchHomeNotchCenterY = -30.0;
+static const double kAxsNotchHomeNotchScale = 0.061;
+static const double kAxsNotchHomeNotchRadiusFactor = 0.2;
+
 
 
 
@@ -43,6 +52,9 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotScale;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotMatchMove;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
+
+// Direct (non-hooked) lookup: which layout index is the app being zoomed.
+static IMP sAxsNotchHomeZoomCheckIMP = NULL;
 
 
 
@@ -59,6 +71,14 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
            state.began && !state.finishing && state.startedAtHomeCache == 0;
+}
+
+static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
+    if (sAxsNotchHomeZoomCheckIMP) {
+        return ((BOOL (*)(id, SEL, NSUInteger))sAxsNotchHomeZoomCheckIMP)(
+            modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
+    }
+    return index == 0;
 }
 
 #pragma mark - Hook implementations
@@ -174,16 +194,21 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
-    static NSUInteger pairSamples = 0;
-    if (pairSamples < 80) {
-        pairSamples++;
-        double pairedScale = (index == 0) ? state.lastOrigScale0 : state.lastOrigScale1;
-        axs_notchhome_diagLogF("pair idx=%lu f=(%.0f,%.0f,%.0f,%.0f) s=%.3f",
+    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
+        return original;
+    }
+    static NSUInteger notchLogs = 0;
+    if (notchLogs < 20) {
+        notchLogs++;
+        axs_notchhome_diagLogF("notch idx=%lu from=(%.0f,%.0f,%.0f,%.0f)",
             (unsigned long)index,
             CGRectGetMinX(original), CGRectGetMinY(original),
-            CGRectGetWidth(original), CGRectGetHeight(original), pairedScale);
+            CGRectGetWidth(original), CGRectGetHeight(original));
     }
-    return original;
+    axs_notchhome_diagIconOK++;
+    CGFloat w = CGRectGetWidth(state.cachedBounds);
+    CGFloat h = CGRectGetHeight(state.cachedBounds);
+    return CGRectMake(w / 2.0 - w / 2.0, kAxsNotchHomeNotchCenterY - h / 2.0, w, h);
 }
 
 static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
@@ -196,7 +221,13 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     } else if (state && index == 1) {
         state.lastOrigScale1 = original;
     }
-    return original;
+    if (!axs_notchhome_stateActive(state)) {
+        return original;
+    }
+    if (!axs_notchhome_isZoomIndex(self, index)) {
+        return original;
+    }
+    return kAxsNotchHomeNotchScale;
 }
 
 static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUInteger index) {
@@ -210,14 +241,12 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    static NSUInteger cornerSamples = 0;
-    if (cornerSamples < 40) {
-        cornerSamples++;
-        axs_notchhome_diagLogF("wrapC idx=%lu r=(%.1f,%.1f,%.1f,%.1f)",
-            (unsigned long)index,
-            original.topLeft, original.topRight, original.bottomLeft, original.bottomRight);
+    if (!state.cachedBoundsValid || !axs_notchhome_isZoomIndex(self, index)) {
+        return original;
     }
-    return original;
+    double radius = CGRectGetWidth(state.cachedBounds) * kAxsNotchHomeNotchRadiusFactor;
+    AxsNotchHomeCornerRadii radii = {radius, radius, radius, radius};
+    return radii;
 }
 
 static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
@@ -383,7 +412,11 @@ static void axs_notchhome_installAll(void) {
     [sAxsNotchHomeSlotAnimAttrs axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributes
                                                           returnType:"@" argumentTypes:@[@"@"]];
 
-    axs_notchhome_diagLogF("wrap build: passthrough logging");
+    if (!sAxsNotchHomeZoomCheckIMP) {
+        sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
+                                                            "B", @[@"Q"]);
+    }
+    axs_notchhome_diagLogF("lookups: zoomCheckIMP=%p", (void *)sAxsNotchHomeZoomCheckIMP);
 }
 
 %ctor {
