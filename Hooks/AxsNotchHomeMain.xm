@@ -45,6 +45,7 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
 static IMP sAxsNotchHomeIconFrameIMP = NULL;
 static NSInteger sAxsNotchHomeIconFrameForm = 0; // 0 none, 1 no-arg, 2 index-arg
 static IMP sAxsNotchHomeIconRadiusIMP = NULL;
+static IMP sAxsNotchHomeFullFrameIMP = NULL;
 static NSInteger sAxsNotchHomeIconRadiusForm = 0; // 0 none, 1 double, 2 radii struct
 
 static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
@@ -103,6 +104,28 @@ static double axs_notchhome_iconRadius(id modifier, BOOL *valid) {
         }
     }
     return 0;
+}
+
+// The audited _homeScreenIconFrame does not exist anywhere in this
+// class hierarchy on iOS 15.4 (device method dump, 2026-11-10). The
+// modifier's own fullyPresentedFrameForIndex:frame: is the candidate
+// source for the home-icon target frame; a result is only accepted
+// when it is plausibly icon-sized, otherwise callers keep the
+// original frame and the attempt is visible in the diagnostic log.
+static CGRect axs_notchhome_candidateIconFrame(id modifier, NSUInteger index, CGRect seed, BOOL *valid) {
+    *valid = NO;
+    if (!sAxsNotchHomeFullFrameIMP) {
+        return CGRectZero;
+    }
+    CGRect candidate = ((CGRect (*)(id, SEL, NSUInteger, CGRect))sAxsNotchHomeFullFrameIMP)(
+        modifier, NSSelectorFromString(@"fullyPresentedFrameForIndex:frame:"), index, seed);
+    CGFloat w = CGRectGetWidth(candidate);
+    CGFloat h = CGRectGetHeight(candidate);
+    if (w >= 30.0 && w <= 140.0 && h >= 30.0 && h <= 140.0 &&
+        isfinite(w) && isfinite(h) && isfinite(CGRectGetMinX(candidate)) && isfinite(CGRectGetMinY(candidate))) {
+        *valid = YES;
+    }
+    return candidate;
 }
 
 #pragma mark - Hook implementations
@@ -219,7 +242,19 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
     }
     axs_notchhome_diagFrameActive++;
     BOOL valid = NO;
-    CGRect icon = axs_notchhome_iconFrame(self, index, &valid);
+    CGRect icon = axs_notchhome_candidateIconFrame(self, index, original, &valid);
+    static NSUInteger frameSamples = 0;
+    if (frameSamples < 8) {
+        frameSamples++;
+        BOOL fsValid = NO;
+        CGRect fsSeed = CGRectMake(0, 0, CGRectGetWidth(state.cachedBounds), CGRectGetHeight(state.cachedBounds));
+        CGRect iconFS = axs_notchhome_candidateIconFrame(self, index, fsSeed, &fsValid);
+        axs_notchhome_diagLogF("sample idx=%lu orig=(%.0f,%.0f,%.0f,%.0f) cand=(%.0f,%.0f,%.0f,%.0f) valid=%d candFS=(%.0f,%.0f,%.0f,%.0f) validFS=%d",
+            (unsigned long)index,
+            CGRectGetMinX(original), CGRectGetMinY(original), CGRectGetWidth(original), CGRectGetHeight(original),
+            CGRectGetMinX(icon), CGRectGetMinY(icon), CGRectGetWidth(icon), CGRectGetHeight(icon), (int)valid,
+            CGRectGetMinX(iconFS), CGRectGetMinY(iconFS), CGRectGetWidth(iconFS), CGRectGetHeight(iconFS), (int)fsValid);
+    }
     if (valid) {
         axs_notchhome_diagIconOK++;
     }
@@ -235,7 +270,8 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     BOOL valid = NO;
-    CGRect icon = axs_notchhome_iconFrame(self, index, &valid);
+    CGRect seed = CGRectMake(0, 0, CGRectGetWidth(state.cachedBounds), CGRectGetHeight(state.cachedBounds));
+    CGRect icon = axs_notchhome_candidateIconFrame(self, index, seed, &valid);
     if (!valid) {
         return original;
     }
@@ -494,8 +530,13 @@ static void axs_notchhome_installAll(void) {
             }
         }
     }
-    axs_notchhome_diagLogF("lookups: iconFrameForm=%ld iconRadiusForm=%ld",
-        (long)sAxsNotchHomeIconFrameForm, (long)sAxsNotchHomeIconRadiusForm);
+    if (!sAxsNotchHomeFullFrameIMP) {
+        sAxsNotchHomeFullFrameIMP = axs_notchhome_lookupIMP(modifier, @"fullyPresentedFrameForIndex:frame:",
+                                                            kAxsNotchHomeCGRectEncoding,
+                                                            @[@"Q", @"{CGRect={CGPoint=dd}{CGSize=dd}}"]);
+    }
+    axs_notchhome_diagLogF("lookups: iconFrameForm=%ld iconRadiusForm=%ld fullFrameIMP=%p",
+        (long)sAxsNotchHomeIconFrameForm, (long)sAxsNotchHomeIconRadiusForm, (void *)sAxsNotchHomeFullFrameIMP);
 }
 
 %ctor {
