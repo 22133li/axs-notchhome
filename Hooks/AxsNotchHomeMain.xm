@@ -156,8 +156,17 @@ static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
     state.cachedBoundsValid = axs_notchhome_isPlausibleBounds(bounds);
     sStLogFrames = 0;
     state.ihLastLogged = -1;
-    axs_notchhome_diagLogF("stlog begin self=%p started=%lld", self,
-        (long long)state.startedAtHomeCache);
+    long long dirValue = -9;
+    @try {
+        id dirObj = [self valueForKey:@"direction"];
+        if ([dirObj isKindOfClass:[NSNumber class]]) {
+            dirValue = [dirObj longLongValue];
+        }
+    } @catch (NSException *exception) {
+        dirValue = -8;
+    }
+    axs_notchhome_diagLogF("stlog begin self=%p started=%lld dir=%lld layout=%p", self,
+        (long long)state.startedAtHomeCache, dirValue, state.appLayout);
 }
 
 static id axs_notchhome_hookTransitionWillBegin(id self, SEL _cmd) {
