@@ -460,10 +460,10 @@ static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
                 @try {
                     id stPos = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
                     id stScale = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
-                    id stLayout = [attributes respondsToSelector:@selector(layoutSettings)] ? [attributes layoutSettings] : nil;
-                    id stCorner = [attributes respondsToSelector:@selector(cornerRadiusSettings)] ? [attributes cornerRadiusSettings] : nil;
-                    id stOpacity = [attributes respondsToSelector:@selector(opacitySettings)] ? [attributes opacitySettings] : nil;
-                    id stClip = [attributes respondsToSelector:@selector(clippingSettings)] ? [attributes clippingSettings] : nil;
+                    id stLayout = [attributes respondsToSelector:@selector(layoutSettings)] ? ((id (*)(id, SEL))objc_msgSend)(attributes, @selector(layoutSettings)) : nil;
+                    id stCorner = [attributes respondsToSelector:@selector(cornerRadiusSettings)] ? ((id (*)(id, SEL))objc_msgSend)(attributes, @selector(cornerRadiusSettings)) : nil;
+                    id stOpacity = [attributes respondsToSelector:@selector(opacitySettings)] ? ((id (*)(id, SEL))objc_msgSend)(attributes, @selector(opacitySettings)) : nil;
+                    id stClip = [attributes respondsToSelector:@selector(clippingSettings)] ? ((id (*)(id, SEL))objc_msgSend)(attributes, @selector(clippingSettings)) : nil;
                     axs_notchhome_diagLogF("slots zoom=%d pos{%.3f %.3f} scale{%.3f %.3f} layout{%.3f %.3f} corner{%.3f %.3f} opacity{%.3f %.3f} clip{%.3f %.3f} modes{p=%lld s=%lld l=%lld c=%lld o=%lld}",
                         sW5ZoomLayout ? (element == sW5ZoomLayout ? 1 : 0) : -1,
                         axs_notchhome_probeDouble(stPos, @selector(dampingRatio)), axs_notchhome_probeDouble(stPos, @selector(response)),
