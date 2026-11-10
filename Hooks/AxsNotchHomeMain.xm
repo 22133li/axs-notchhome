@@ -29,6 +29,16 @@ static const char *const kAxsNotchHomeRadiiEncoding = "{UIRectCornerRadii=dddd}"
 static const double kAxsNotchHomePositionDamping = 1.28;
 static const double kAxsNotchHomeScaleDamping = 0.97;
 
+// Notch suction target. Device pair data (2026-11-10) proved the stock
+// zoom keeps the layout frame's size and moves its CENTER to the icon
+// center while scaleForIndex: carries the shrink (428-wide frame,
+// center = icon center, scale 0.150 = 64/428). Redirecting the zoom to
+// the notch therefore means: same frame size, center moved to the
+// notch center, and scale set so the window ends notch-wide.
+static const double kAxsNotchHomeNotchCenterY = 20.0;
+static const double kAxsNotchHomeNotchWidth = 170.0;
+static const double kAxsNotchHomeNotchRadius = 40.0;
+
 static BOOL sAxsNotchHomeEnabled = NO;
 
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotIsHome;
@@ -41,12 +51,9 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotMatchMove;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
 
-// Direct (non-hooked) lookups, mirroring the original's helper at 0x8430.
-static IMP sAxsNotchHomeIconFrameIMP = NULL;
-static NSInteger sAxsNotchHomeIconFrameForm = 0; // 0 none, 1 no-arg, 2 index-arg
-static IMP sAxsNotchHomeIconRadiusIMP = NULL;
-static IMP sAxsNotchHomeFullFrameIMP = NULL;
-static NSInteger sAxsNotchHomeIconRadiusForm = 0; // 0 none, 1 double, 2 radii struct
+// Direct (non-hooked) lookup, mirroring the original's helper at 0x8430:
+// which layout index is the app being zoomed (others keep stock values).
+static IMP sAxsNotchHomeZoomCheckIMP = NULL;
 
 static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
     if (!slot) {
@@ -63,49 +70,21 @@ static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
            state.began && !state.finishing && state.startedAtHomeCache == 0;
 }
 
-static double axs_notchhome_iconRadius(id modifier, BOOL *valid) {
-    *valid = NO;
-    if (!sAxsNotchHomeIconRadiusIMP) {
-        return 0;
+static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
+    if (sAxsNotchHomeZoomCheckIMP) {
+        return ((BOOL (*)(id, SEL, NSUInteger))sAxsNotchHomeZoomCheckIMP)(
+            modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
     }
-    if (sAxsNotchHomeIconRadiusForm == 1) {
-        double radius = ((double (*)(id, SEL))sAxsNotchHomeIconRadiusIMP)(
-            modifier, NSSelectorFromString(@"_homeScreenIconCornerRadius"));
-        if (radius > 0 && isfinite(radius)) {
-            *valid = YES;
-            return radius;
-        }
-    } else if (sAxsNotchHomeIconRadiusForm == 2) {
-        AxsNotchHomeCornerRadii radii = ((AxsNotchHomeCornerRadii (*)(id, SEL))sAxsNotchHomeIconRadiusIMP)(
-            modifier, NSSelectorFromString(@"_homeScreenIconCornerRadius"));
-        if (radii.topLeft > 0 && isfinite(radii.topLeft)) {
-            *valid = YES;
-            return radii.topLeft;
-        }
-    }
-    return 0;
+    return index == 0;
 }
 
-// The audited _homeScreenIconFrame does not exist anywhere in this
-// class hierarchy on iOS 15.4 (device method dump, 2026-11-10). The
-// modifier's own fullyPresentedFrameForIndex:frame: is the candidate
-// source for the home-icon target frame; a result is only accepted
-// when it is plausibly icon-sized, otherwise callers keep the
-// original frame and the attempt is visible in the diagnostic log.
-static CGRect axs_notchhome_candidateIconFrame(id modifier, NSUInteger index, CGRect seed, BOOL *valid) {
-    *valid = NO;
-    if (!sAxsNotchHomeFullFrameIMP) {
-        return CGRectZero;
-    }
-    CGRect candidate = ((CGRect (*)(id, SEL, NSUInteger, CGRect))sAxsNotchHomeFullFrameIMP)(
-        modifier, NSSelectorFromString(@"fullyPresentedFrameForIndex:frame:"), index, seed);
-    CGFloat w = CGRectGetWidth(candidate);
-    CGFloat h = CGRectGetHeight(candidate);
-    if (w >= 30.0 && w <= 140.0 && h >= 30.0 && h <= 140.0 &&
-        isfinite(w) && isfinite(h) && isfinite(CGRectGetMinX(candidate)) && isfinite(CGRectGetMinY(candidate))) {
-        *valid = YES;
-    }
-    return candidate;
+static CGRect axs_notchhome_notchTargetFrame(CGRect original, AxsNotchHomeZoomState *state) {
+    CGFloat boundsWidth = state.cachedBoundsValid ? CGRectGetWidth(state.cachedBounds)
+                                                  : CGRectGetWidth(original);
+    CGPoint center = CGPointMake(boundsWidth / 2.0, (CGFloat)kAxsNotchHomeNotchCenterY);
+    return CGRectMake(center.x - CGRectGetWidth(original) / 2.0,
+                      center.y - CGRectGetHeight(original) / 2.0,
+                      CGRectGetWidth(original), CGRectGetHeight(original));
 }
 
 #pragma mark - Hook implementations
@@ -221,21 +200,21 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
-    static NSUInteger pairSamples = 0;
-    if (pairSamples < 60) {
-        pairSamples++;
-        double pairedScale = (index == 0) ? state.lastOrigScale0 : state.lastOrigScale1;
-        axs_notchhome_diagLogF("pair idx=%lu f=(%.0f,%.0f,%.0f,%.0f) s=%.3f",
+    if (!axs_notchhome_isZoomIndex(self, index)) {
+        return original;
+    }
+    static NSUInteger notchLogs = 0;
+    if (notchLogs < 20) {
+        notchLogs++;
+        axs_notchhome_diagLogF("notch idx=%lu from=(%.0f,%.0f,%.0f,%.0f) center->(%.0f,%.0f)",
             (unsigned long)index,
             CGRectGetMinX(original), CGRectGetMinY(original),
-            CGRectGetWidth(original), CGRectGetHeight(original), pairedScale);
+            CGRectGetWidth(original), CGRectGetHeight(original),
+            (state.cachedBoundsValid ? CGRectGetWidth(state.cachedBounds) : CGRectGetWidth(original)) / 2.0,
+            kAxsNotchHomeNotchCenterY);
     }
-    BOOL valid = NO;
-    CGRect icon = axs_notchhome_candidateIconFrame(self, index, original, &valid);
-    if (valid) {
-        axs_notchhome_diagIconOK++;
-    }
-    return valid ? icon : original;
+    axs_notchhome_diagIconOK++;
+    return axs_notchhome_notchTargetFrame(original, state);
 }
 
 static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
@@ -251,13 +230,10 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state) || !state.cachedBoundsValid) {
         return original;
     }
-    BOOL valid = NO;
-    CGRect seed = CGRectMake(0, 0, CGRectGetWidth(state.cachedBounds), CGRectGetHeight(state.cachedBounds));
-    CGRect icon = axs_notchhome_candidateIconFrame(self, index, seed, &valid);
-    if (!valid) {
+    if (!axs_notchhome_isZoomIndex(self, index)) {
         return original;
     }
-    double scale = CGRectGetWidth(icon) / CGRectGetWidth(state.cachedBounds);
+    double scale = kAxsNotchHomeNotchWidth / CGRectGetWidth(state.cachedBounds);
     return (scale > 0.0 && scale <= 1.0) ? scale : original;
 }
 
@@ -272,12 +248,11 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    BOOL valid = NO;
-    double radius = axs_notchhome_iconRadius(self, &valid);
-    if (!valid) {
+    if (!axs_notchhome_isZoomIndex(self, index)) {
         return original;
     }
-    AxsNotchHomeCornerRadii radii = {radius, radius, radius, radius};
+    AxsNotchHomeCornerRadii radii = {kAxsNotchHomeNotchRadius, kAxsNotchHomeNotchRadius,
+                                     kAxsNotchHomeNotchRadius, kAxsNotchHomeNotchRadius};
     return radii;
 }
 
@@ -476,49 +451,12 @@ static void axs_notchhome_installAll(void) {
     [sAxsNotchHomeSlotAnimAttrs axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributes
                                                           returnType:"@" argumentTypes:@[@"@"]];
 
-    // Direct lookups for the home-screen icon geometry (not hooked).
-    if (!sAxsNotchHomeIconFrameIMP) {
-        sAxsNotchHomeIconFrameIMP = axs_notchhome_lookupIMP(modifier, @"_homeScreenIconFrame",
-                                                            kAxsNotchHomeCGRectEncoding, @[]);
-        if (sAxsNotchHomeIconFrameIMP) {
-            sAxsNotchHomeIconFrameForm = 1;
-        } else {
-            sAxsNotchHomeIconFrameIMP = axs_notchhome_lookupIMP(modifier, @"_homeScreenIconFrame",
-                                                                kAxsNotchHomeCGRectEncoding, @[@"Q"]);
-            if (sAxsNotchHomeIconFrameIMP) {
-                sAxsNotchHomeIconFrameForm = 2;
-            }
-        }
+    // Direct lookup for the zoom-index check (not hooked).
+    if (!sAxsNotchHomeZoomCheckIMP) {
+        sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
+                                                            "B", @[@"Q"]);
     }
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotIsHome);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotWillBegin);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotDidEnd);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotInterrupt);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotFrame);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotScale);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotCorner);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotMatchMove);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotAnimAttrs);
-    if (!sAxsNotchHomeIconRadiusIMP) {
-        sAxsNotchHomeIconRadiusIMP = axs_notchhome_lookupIMP(modifier, @"_homeScreenIconCornerRadius",
-                                                             "d", @[]);
-        if (sAxsNotchHomeIconRadiusIMP) {
-            sAxsNotchHomeIconRadiusForm = 1;
-        } else {
-            sAxsNotchHomeIconRadiusIMP = axs_notchhome_lookupIMP(modifier, @"_homeScreenIconCornerRadius",
-                                                                 kAxsNotchHomeRadiiEncoding, @[]);
-            if (sAxsNotchHomeIconRadiusIMP) {
-                sAxsNotchHomeIconRadiusForm = 2;
-            }
-        }
-    }
-    if (!sAxsNotchHomeFullFrameIMP) {
-        sAxsNotchHomeFullFrameIMP = axs_notchhome_lookupIMP(modifier, @"fullyPresentedFrameForIndex:frame:",
-                                                            kAxsNotchHomeCGRectEncoding,
-                                                            @[@"Q", @"{CGRect={CGPoint=dd}{CGSize=dd}}"]);
-    }
-    axs_notchhome_diagLogF("lookups: iconFrameForm=%ld iconRadiusForm=%ld fullFrameIMP=%p",
-        (long)sAxsNotchHomeIconFrameForm, (long)sAxsNotchHomeIconRadiusForm, (void *)sAxsNotchHomeFullFrameIMP);
+    axs_notchhome_diagLogF("lookups: zoomCheckIMP=%p", (void *)sAxsNotchHomeZoomCheckIMP);
 }
 
 %ctor {
