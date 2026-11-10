@@ -92,18 +92,26 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
 // 0x6ec4, scale/corner identical): the override applies only while
 // began==1, ended==0, finishing!=1, mutationDepth<=0 (no recursion path
 // exists in this implementation, so the depth check is vacuous), the
-// tri-state first-sample field is resolved (!=2) and ==1, a LIVE call of
-// the original _isEffectivelyHome at geometry time returns NO, and the
+// tri-state first-sample field is resolved (!=2) and ==0, a LIVE call of
+// the original _isEffectivelyHome at geometry time returns YES, and the
 // index is the zoom index. The live-call and zoom checks live in the
 // geometry hooks; this predicate carries the cached-field half.
 // startedAtHomeCache here is that tri-state field: written ONLY by the
 // _isEffectivelyHome replacement's backfill (first sample wins), never
 // by the begin handler — disassembly shows exactly two writers of the
 // field in the whole binary (state init -> 2, ih backfill).
+// POLARITY CORRECTION (-40): -38/-39 implemented this gate with both
+// booleans inverted, misreading `orn w9, w9, w0` at 0x70dc (ORN negates
+// the SECOND source: F920 | ~liveIH, not ~F920 | liveIH). Re-verified
+// instruction by instruction at 0x70cc-0x70e4 (frame), 0x73ec-0x73fc
+// (scale) and 0xb90c-0xb91c (opacity, `bic w8, w22, w25` = liveIH &
+// ~F920): continue iff firstSample==0 AND liveIH==YES AND isZoom==YES.
+// On device this showed exactly as the user spotted in their video:
+// the override fired on OPENING legs and stayed off on home legs.
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
            state.began && !state.ended && !state.finishing &&
-           state.startedAtHomeCache == 1;
+           state.startedAtHomeCache == 0;
 }
 
 // Live original _isEffectivelyHome, called through the saved IMP like
@@ -314,7 +322,7 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (axs_notchhome_liveIsEffectivelyHome(self)) {
+    if (!axs_notchhome_liveIsEffectivelyHome(self)) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
@@ -348,7 +356,7 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (axs_notchhome_liveIsEffectivelyHome(self)) {
+    if (!axs_notchhome_liveIsEffectivelyHome(self)) {
         return original;
     }
     if (!axs_notchhome_isTargetIndex(self, state, index)) {
@@ -368,7 +376,7 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (axs_notchhome_liveIsEffectivelyHome(self)) {
+    if (!axs_notchhome_liveIsEffectivelyHome(self)) {
         return original;
     }
     if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
