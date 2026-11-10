@@ -567,12 +567,23 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
         }
         const char *ivarName = (kind == kAxsNotchHomeVCFlipActiveDown) ? "_active" : "_visible";
         Ivar ivar = class_getInstanceVariable(object_getClass(action), ivarName);
+        static NSUInteger flipLogs = 0;
         if (!ivar) {
+            if (flipLogs < 20) {
+                flipLogs++;
+                axs_notchhome_diagLogF("stlog vcflip %s NO-IVAR %s on %s",
+                    kindNames[kind], ivarName, class_getName(object_getClass(action)));
+            }
             called = YES;
             callOrig(self, _cmd, action);
             return;
         }
         unsigned char *bytePtr = (unsigned char *)(__bridge void *)action + ivar_getOffset(ivar);
+        if (flipLogs < 20) {
+            flipLogs++;
+            axs_notchhome_diagLogF("stlog vcflip %s ivar %s off=%td byte=%d",
+                kindNames[kind], ivarName, ivar_getOffset(ivar), (int)*bytePtr);
+        }
         if (kind == kAxsNotchHomeVCFlipVisibleUp) {
             if (*bytePtr != 0) {
                 called = YES;
@@ -622,6 +633,26 @@ static void axs_notchhome_hookVCActIconView(id self, SEL _cmd, id action) {
     axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActIconView, self, _cmd, action, kAxsNotchHomeVCFlipVisibleUp);
 }
 
+static void axs_notchhome_diagDumpIvars(NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        axs_notchhome_diagLogF("ivars %s: class-missing", className.UTF8String);
+        return;
+    }
+    for (Class c = cls; c && c != [NSObject class]; c = class_getSuperclass(c)) {
+        unsigned count = 0;
+        Ivar *ivars = class_copyIvarList(c, &count);
+        axs_notchhome_diagLogF("ivars %s (on %s): %u", className.UTF8String,
+            class_getName(c), count);
+        for (unsigned i = 0; i < count; i++) {
+            const char *type = ivar_getTypeEncoding(ivars[i]);
+            axs_notchhome_diagLogF("  ivar %s off=%td type=%s",
+                ivar_getName(ivars[i]), ivar_getOffset(ivars[i]), type ? type : "?");
+        }
+        free(ivars);
+    }
+}
+
 static void axs_notchhome_diagDumpClass(NSString *className) {
     Class cls = NSClassFromString(className);
     if (!cls) {
@@ -665,6 +696,9 @@ static void axs_notchhome_installAll(void) {
         axs_notchhome_diagDumpClass(@"SBTransitionSwitcherModifier");
         axs_notchhome_diagDumpClass(kAxsNotchHomeGestureModifierClass);
         axs_notchhome_diagDumpClass(@"SBFluidSwitcherViewController");
+        axs_notchhome_diagDumpIvars(@"SBMatchMoveToIconViewSwitcherEventResponse");
+        axs_notchhome_diagDumpIvars(@"SBIconOverlayVisibilitySwitcherEventResponse");
+        axs_notchhome_diagDumpIvars(@"SBIconViewVisibilitySwitcherEventResponse");
     }
 
     axs_notchhome_slot(&sAxsNotchHomeSlotIsHome, modifier, @"_isEffectivelyHome");
