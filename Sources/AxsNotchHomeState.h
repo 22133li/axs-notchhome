@@ -10,6 +10,8 @@
 @interface AxsNotchHomeZoomState : NSObject
 @property (nonatomic, assign) NSInteger startedAtHomeCache;
 @property (nonatomic, assign) NSInteger ihLastLogged;
+@property (nonatomic, assign) NSInteger directionCache;
+@property (nonatomic, assign) NSInteger zoomIndexCache;
 @property (nonatomic, assign) NSInteger effectivelyHomeCache;
 @property (nonatomic, assign) BOOL began;
 @property (nonatomic, assign) BOOL ended;
