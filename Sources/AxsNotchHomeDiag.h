@@ -20,6 +20,7 @@ extern NSUInteger axs_notchhome_diagMatchCalls;
 extern NSUInteger axs_notchhome_diagAnimCalls;
 extern NSUInteger axs_notchhome_diagAnimSkip;
 extern NSUInteger axs_notchhome_diagAnimResp;
+extern NSUInteger axs_notchhome_diagLayoutResp;
 extern NSInteger axs_notchhome_diagLastStartedAtHome;
 extern NSInteger axs_notchhome_diagLastBoundsOK;
 #ifdef __cplusplus
