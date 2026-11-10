@@ -281,7 +281,7 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
 
 #pragma mark - Installation
 
-static AxsNotchHomeHookSlot *axs_notchhome_slot(AxsNotchHomeHookSlot **slot,
+static AxsNotchHomeHookSlot *axs_notchhome_slot(AxsNotchHomeHookSlot *__strong *slot,
                                               NSString *className, NSString *selectorName) {
     if (!*slot) {
         *slot = [AxsNotchHomeHookSlot axs_notchhome_slotWithClassName:className selectorName:selectorName];
