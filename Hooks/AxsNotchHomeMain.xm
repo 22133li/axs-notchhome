@@ -63,26 +63,6 @@ static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
            state.began && !state.finishing && state.startedAtHomeCache == 0;
 }
 
-static CGRect axs_notchhome_iconFrame(id modifier, NSUInteger index, BOOL *valid) {
-    *valid = NO;
-    if (!sAxsNotchHomeIconFrameIMP) {
-        return CGRectZero;
-    }
-    CGRect frame = CGRectZero;
-    if (sAxsNotchHomeIconFrameForm == 1) {
-        frame = ((CGRect (*)(id, SEL))sAxsNotchHomeIconFrameIMP)(
-            modifier, NSSelectorFromString(@"_homeScreenIconFrame"));
-    } else if (sAxsNotchHomeIconFrameForm == 2) {
-        frame = ((CGRect (*)(id, SEL, NSUInteger))sAxsNotchHomeIconFrameIMP)(
-            modifier, NSSelectorFromString(@"_homeScreenIconFrame"), index);
-    }
-    if (CGRectGetWidth(frame) > 0 && CGRectGetHeight(frame) > 0 &&
-        isfinite(CGRectGetWidth(frame)) && isfinite(CGRectGetHeight(frame))) {
-        *valid = YES;
-    }
-    return frame;
-}
-
 static double axs_notchhome_iconRadius(id modifier, BOOL *valid) {
     *valid = NO;
     if (!sAxsNotchHomeIconRadiusIMP) {
