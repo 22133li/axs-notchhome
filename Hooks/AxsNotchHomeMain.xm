@@ -72,8 +72,12 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotFrame;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotScale;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
-static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActionMatchMove;
-static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActionIconOverlay;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCRspMatchMove;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCRspIconOverlay;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCRspIconView;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActMatchMove;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActIconOverlay;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActIconView;
 
 // Direct (non-hooked) lookup: which layout index is the app being zoomed.
 static IMP sAxsNotchHomeZoomCheckIMP = NULL;
@@ -488,27 +492,40 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
 }
 
 
-// SBFluidSwitcherViewController modifier-action hooks, transcribed
-// from the original's registrar-B worker (shared worker at 0xd508,
-// reached from thunks 0xc478/0xc4a0 whose slot descriptors name the
-// class SBFluidSwitcherViewController and the selectors
-// _performModifierMatchMoveToIconViewAction: /
-// _performModifierIconOverlayVisibilityUpdateAction:).
-// Behavior: off the main thread, or with a nil action, the original
-// tail-calls the saved IMP untouched. Otherwise, when the action's
-// appLayout is the layout of the transition the notch state is active
-// for (the original qualifies through a live context lookup for the
-// layout, 0xafc4), it flips one BOOL ivar of the action object to 0
-// for the duration of the original call and restores it to 1 after:
-// _active for the match-move action, _visible for the icon-overlay
-// visibility action (small-string immediates at 0xd6d0/0xd6e0). If the
-// ivar is absent or not 1, the call passes through untouched. The
-// effect is that the view controller processes the match-move as
-// inactive and the icon overlay as not visible for notch-closed apps,
-// so the real icon is never hidden behind the overlay — the visible
-// symptom of skipping this is the closed app's icon sitting dark for
-// a beat after the window lands.
-static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SEL _cmd, id action, BOOL isOverlay) {
+// SBFluidSwitcherViewController modifier-response/action hooks,
+// fully decoded from the original's registrar B (2026-11-11):
+// SIX slot descriptors (initializers 0xbc4c-0xbf1c) form a 3x2 matrix
+// on the class SBFluidSwitcherViewController — three response kinds,
+// each in an iOS 15 "Response:" spelling and an iOS 16 "Action:"
+// spelling:
+//   _performModifierMatchMoveToIconView{Response,Action}:
+//   _performModifierIconOverlayVisibilityUpdate{Response,Action}:
+//   _performModifierIconViewVisibilityUpdate{Response,Action}:
+// On iOS 15.4 only the Response: methods exist (verified in the
+// device class dump); the Action: installs fail silently there in
+// the original as well. Two worker families sit behind the thunks:
+//   - MatchMove / IconOverlay (worker 0xd508, flag in the thunk):
+//     if the response's BOOL ivar is 1, it is forced to 0 for the
+//     duration of the original call and restored to 1 after.
+//     Ivar: _active (MatchMove), _visible (IconOverlay).
+//   - IconViewVisibility (worker 0xd1d0): INVERTED — if the _visible
+//     ivar is 0, it is forced to 1 during the original call and
+//     restored to 0 after, i.e. the icon view is kept visible.
+// Both workers tail-call the original IMP untouched off the main
+// thread or for a nil response, and qualify the flip through two
+// static (String, String) whitelist membership tests (0xbfac) plus a
+// live per-layout context lookup (0xafc4); the whitelist pair
+// semantics are the one piece not fully decoded, and the latch below
+// (this leg's geometry override applied for this layout) is the
+// operational equivalent used here. If the ivar is absent or not in
+// the state to flip, the call passes through untouched.
+enum {
+    kAxsNotchHomeVCFlipActiveDown = 0,
+    kAxsNotchHomeVCFlipVisibleDown = 1,
+    kAxsNotchHomeVCFlipVisibleUp = 2,
+};
+
+static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SEL _cmd, id action, NSInteger kind) {
     IMP orig = axs_notchhome_savedIMP(slot);
     if (!orig) {
         return;
@@ -518,6 +535,7 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
         callOrig(self, _cmd, action);
         return;
     }
+    static const char *kindNames[] = {"matchmove", "overlay", "iconview"};
     BOOL called = NO;
     @try {
         id actionLayout = nil;
@@ -528,21 +546,18 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
         }
         AxsNotchHomeZoomState *state = sAxsNotchHomeCurrentModifier
             ? axs_notchhome_stateForObject(sAxsNotchHomeCurrentModifier, NO) : nil;
-        // The original qualifies through a live per-layout context
-        // registry, not through the transition's live flags: actions
-        // generated by transitionDidEnd are performed by the view
-        // controller only after the modifier chain has already
-        // finished, when began/ended no longer describe the leg. The
-        // latch (set when this leg's geometry override actually
-        // applied, reset at the next willBegin) carries that fact.
+        // Qualification: see the header comment. Responses generated
+        // by transitionDidEnd are performed after the modifier chain
+        // has finished, so the live flags no longer describe the leg;
+        // the latch carries the fact that this leg's override applied.
         BOOL qualify = actionLayout && sAxsNotchHomeCurrentLayout &&
                        actionLayout == sAxsNotchHomeCurrentLayout &&
                        state && state.notchCloseLatched;
         static NSUInteger actionLogs = 0;
-        if (actionLogs < 40) {
+        if (actionLogs < 60) {
             actionLogs++;
             axs_notchhome_diagLogF("stlog vcaction seen %s layout=%p cur=%p latch=%d qualify=%d",
-                isOverlay ? "overlay" : "matchmove", actionLayout, sAxsNotchHomeCurrentLayout,
+                kindNames[kind], actionLayout, sAxsNotchHomeCurrentLayout,
                 state ? (int)state.notchCloseLatched : -1, (int)qualify);
         }
         if (!qualify) {
@@ -550,7 +565,7 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
             callOrig(self, _cmd, action);
             return;
         }
-        const char *ivarName = isOverlay ? "_visible" : "_active";
+        const char *ivarName = (kind == kAxsNotchHomeVCFlipActiveDown) ? "_active" : "_visible";
         Ivar ivar = class_getInstanceVariable(object_getClass(action), ivarName);
         if (!ivar) {
             called = YES;
@@ -558,17 +573,29 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
             return;
         }
         unsigned char *bytePtr = (unsigned char *)(__bridge void *)action + ivar_getOffset(ivar);
-        if (*bytePtr != 1) {
+        if (kind == kAxsNotchHomeVCFlipVisibleUp) {
+            if (*bytePtr != 0) {
+                called = YES;
+                callOrig(self, _cmd, action);
+                return;
+            }
+            *bytePtr = 1;
             called = YES;
             callOrig(self, _cmd, action);
-            return;
+            *bytePtr = 0;
+        } else {
+            if (*bytePtr != 1) {
+                called = YES;
+                callOrig(self, _cmd, action);
+                return;
+            }
+            *bytePtr = 0;
+            called = YES;
+            callOrig(self, _cmd, action);
+            *bytePtr = 1;
         }
-        *bytePtr = 0;
-        called = YES;
-        callOrig(self, _cmd, action);
-        *bytePtr = 1;
         axs_notchhome_diagLogF("stlog vcaction %s flipped for layout %p",
-            isOverlay ? "overlay" : "matchmove", actionLayout);
+            kindNames[kind], actionLayout);
     } @catch (NSException *exception) {
         if (!called) {
             callOrig(self, _cmd, action);
@@ -576,12 +603,23 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
     }
 }
 
-static void axs_notchhome_hookVCActionMatchMove(id self, SEL _cmd, id action) {
-    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActionMatchMove, self, _cmd, action, NO);
+static void axs_notchhome_hookVCRspMatchMove(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCRspMatchMove, self, _cmd, action, kAxsNotchHomeVCFlipActiveDown);
 }
-
-static void axs_notchhome_hookVCActionIconOverlay(id self, SEL _cmd, id action) {
-    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActionIconOverlay, self, _cmd, action, YES);
+static void axs_notchhome_hookVCRspIconOverlay(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCRspIconOverlay, self, _cmd, action, kAxsNotchHomeVCFlipVisibleDown);
+}
+static void axs_notchhome_hookVCRspIconView(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCRspIconView, self, _cmd, action, kAxsNotchHomeVCFlipVisibleUp);
+}
+static void axs_notchhome_hookVCActMatchMove(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActMatchMove, self, _cmd, action, kAxsNotchHomeVCFlipActiveDown);
+}
+static void axs_notchhome_hookVCActIconOverlay(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActIconOverlay, self, _cmd, action, kAxsNotchHomeVCFlipVisibleDown);
+}
+static void axs_notchhome_hookVCActIconView(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActIconView, self, _cmd, action, kAxsNotchHomeVCFlipVisibleUp);
 }
 
 static void axs_notchhome_diagDumpClass(NSString *className) {
@@ -682,15 +720,31 @@ static void axs_notchhome_installAll(void) {
     // Registrar B's two view-controller action hooks (see the worker
     // above). Signature-verified like every other slot; if the class or
     // method is absent the install silently skips, as in the original.
-    axs_notchhome_slot(&sAxsNotchHomeSlotVCActionMatchMove, @"SBFluidSwitcherViewController",
-                     @"_performModifierMatchMoveToIconViewAction:");
-    BOOL vcMatchInstalled = [sAxsNotchHomeSlotVCActionMatchMove axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActionMatchMove
-                                                                                          returnType:"v" argumentTypes:@[@"@"]];
-    axs_notchhome_slot(&sAxsNotchHomeSlotVCActionIconOverlay, @"SBFluidSwitcherViewController",
-                     @"_performModifierIconOverlayVisibilityUpdateAction:");
-    BOOL vcOverlayInstalled = [sAxsNotchHomeSlotVCActionIconOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActionIconOverlay
-                                                                                              returnType:"v" argumentTypes:@[@"@"]];
-    axs_notchhome_diagLogF("vc installs: matchmove=%d overlay=%d", (int)vcMatchInstalled, (int)vcOverlayInstalled);
+    // Registrar B's six view-controller hooks (see the worker above).
+    // Signature-verified like every other slot; on iOS 15.4 the three
+    // Action: installs fail (methods absent) exactly as in the
+    // original, and the three Response: installs engage.
+    NSString *vc = @"SBFluidSwitcherViewController";
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCRspMatchMove, vc, @"_performModifierMatchMoveToIconViewResponse:");
+    BOOL vcRspMM = [sAxsNotchHomeSlotVCRspMatchMove axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCRspMatchMove
+                                                                              returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCRspIconOverlay, vc, @"_performModifierIconOverlayVisibilityUpdateResponse:");
+    BOOL vcRspIO = [sAxsNotchHomeSlotVCRspIconOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCRspIconOverlay
+                                                                                 returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCRspIconView, vc, @"_performModifierIconViewVisibilityUpdateResponse:");
+    BOOL vcRspIV = [sAxsNotchHomeSlotVCRspIconView axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCRspIconView
+                                                                              returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCActMatchMove, vc, @"_performModifierMatchMoveToIconViewAction:");
+    BOOL vcActMM = [sAxsNotchHomeSlotVCActMatchMove axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActMatchMove
+                                                                              returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCActIconOverlay, vc, @"_performModifierIconOverlayVisibilityUpdateAction:");
+    BOOL vcActIO = [sAxsNotchHomeSlotVCActIconOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActIconOverlay
+                                                                                 returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCActIconView, vc, @"_performModifierIconViewVisibilityUpdateAction:");
+    BOOL vcActIV = [sAxsNotchHomeSlotVCActIconView axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActIconView
+                                                                              returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_diagLogF("vc installs: rsp mm=%d io=%d iv=%d; act mm=%d io=%d iv=%d",
+        (int)vcRspMM, (int)vcRspIO, (int)vcRspIV, (int)vcActMM, (int)vcActIO, (int)vcActIV);
 
     if (!sAxsNotchHomeZoomCheckIMP) {
         sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
