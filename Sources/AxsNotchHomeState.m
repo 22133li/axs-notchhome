@@ -33,6 +33,20 @@ AxsNotchHomeZoomState *axs_notchhome_stateForObject(id object, BOOL create) {
     return state;
 }
 
+NSString *axs_notchhome_machineName(void) {
+    char machine[128] = {0};
+    size_t size = sizeof(machine) - 1;
+    if (sysctlbyname("hw.machine", machine, &size, NULL, 0) != 0) {
+        return @"?";
+    }
+    return [NSString stringWithUTF8String:machine];
+}
+
+BOOL axs_notchhome_sentinelExists(void) {
+    return [[NSFileManager defaultManager]
+        fileExistsAtPath:@"/var/mobile/Library/Logs/NotchHome/disable-repair"];
+}
+
 BOOL axs_notchhome_computeEnabled(void) {
     char machine[128] = {0};
     size_t size = sizeof(machine) - 1;

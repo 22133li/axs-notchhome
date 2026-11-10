@@ -39,6 +39,8 @@ UIWindow *axs_notchhome_findSwitcherWindow(void);
 // Plausibility check for a captured bounds rect, mirroring the audited
 // validator (finite, width between 300 and 500 points).
 BOOL axs_notchhome_isPlausibleBounds(CGRect rect);
+NSString *axs_notchhome_machineName(void);
+BOOL axs_notchhome_sentinelExists(void);
 #ifdef __cplusplus
 }
 #endif

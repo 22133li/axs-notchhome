@@ -4,6 +4,9 @@
 #import "AxsNotchHomePrivate.h"
 #import "AxsNotchHomeHookSlot.h"
 #import "AxsNotchHomeState.h"
+#import "AxsNotchHomeDiag.h"
+#include <string.h>
+#include <stdlib.h>
 
 // Compatible reimplementation of NotchHome 0.5.0, built from the static
 // audit in NotchHome-0.5.0-audit.md. Architecture mirrors the original:
@@ -81,6 +84,15 @@ static CGRect axs_notchhome_iconFrame(id modifier, NSUInteger index, BOOL *valid
 
 static double axs_notchhome_iconRadius(id modifier, BOOL *valid) {
     *valid = NO;
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotIsHome);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotWillBegin);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotDidEnd);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotInterrupt);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotFrame);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotScale);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotCorner);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotMatchMove);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotAnimAttrs);
     if (!sAxsNotchHomeIconRadiusIMP) {
         return 0;
     }
@@ -136,10 +148,13 @@ static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
 }
 
 static id axs_notchhome_hookTransitionWillBegin(id self, SEL _cmd) {
+    axs_notchhome_diagWillBegin++;
     if (sAxsNotchHomeEnabled && [NSThread isMainThread]) {
         @try {
             AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, YES);
             axs_notchhome_captureBegin(self, state);
+            axs_notchhome_diagLastStartedAtHome = state.startedAtHomeCache;
+            axs_notchhome_diagLastBoundsOK = state.cachedBoundsValid ? 1 : 0;
         } @catch (NSException *exception) {
         }
     }
@@ -157,6 +172,14 @@ static void axs_notchhome_preFinish(id self) {
 }
 
 static void axs_notchhome_postFinish(id self) {
+    axs_notchhome_diagDidEnd++;
+    axs_notchhome_diagLogF("transition end: willBegin=%lu didEnd=%lu frame=%lu frameActive=%lu iconOK=%lu scale=%lu corner=%lu match=%lu anim=%lu animSkip=%lu lastStartedAtHome=%ld boundsOK=%ld",
+        (unsigned long)axs_notchhome_diagWillBegin, (unsigned long)axs_notchhome_diagDidEnd,
+        (unsigned long)axs_notchhome_diagFrameCalls, (unsigned long)axs_notchhome_diagFrameActive,
+        (unsigned long)axs_notchhome_diagIconOK, (unsigned long)axs_notchhome_diagScaleCalls,
+        (unsigned long)axs_notchhome_diagCornerCalls, (unsigned long)axs_notchhome_diagMatchCalls,
+        (unsigned long)axs_notchhome_diagAnimCalls, (unsigned long)axs_notchhome_diagAnimSkip,
+        (long)axs_notchhome_diagLastStartedAtHome, (long)axs_notchhome_diagLastBoundsOK);
     if ([NSThread isMainThread]) {
         AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
         if (state) {
@@ -196,18 +219,24 @@ static id axs_notchhome_hookInterrupt(id self, SEL _cmd) {
 }
 
 static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
+    axs_notchhome_diagFrameCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotFrame);
     CGRect original = orig ? ((CGRect (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : CGRectZero;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
+    axs_notchhome_diagFrameActive++;
     BOOL valid = NO;
     CGRect icon = axs_notchhome_iconFrame(self, index, &valid);
+    if (valid) {
+        axs_notchhome_diagIconOK++;
+    }
     return valid ? icon : original;
 }
 
 static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
+    axs_notchhome_diagScaleCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotScale);
     double original = orig ? ((double (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : 1.0;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
@@ -224,6 +253,7 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
 }
 
 static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUInteger index) {
+    axs_notchhome_diagCornerCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotCorner);
     AxsNotchHomeCornerRadii original = {0, 0, 0, 0};
     if (orig) {
@@ -243,6 +273,7 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
 }
 
 static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
+    axs_notchhome_diagMatchCalls++;
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotMatchMove);
     BOOL original = orig ? ((BOOL (*)(id, SEL))orig)(self, _cmd) : NO;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
@@ -258,6 +289,7 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     if (!sAxsNotchHomeEnabled || !result) {
         return result;
     }
+    axs_notchhome_diagAnimCalls++;
     // On iOS 15.4 the real attributes object does not necessarily respond
     // to the settings accessors the original binary referenced; the first
     // build crashed SpringBoard with an unrecognized-selector exception
@@ -266,6 +298,7 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
         SBSwitcherAnimationAttributes *attributes = (SBSwitcherAnimationAttributes *)result;
         if (![attributes respondsToSelector:@selector(positionSettings)] ||
             ![attributes respondsToSelector:@selector(scaleSettings)]) {
+            axs_notchhome_diagAnimSkip++;
             return result;
         }
         SBSwitcherAnimationAttributes *copy = [attributes mutableCopy];
@@ -294,6 +327,39 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     } @catch (NSException *exception) {
         return result;
     }
+}
+
+static void axs_notchhome_diagSlot(AxsNotchHomeHookSlot *slot) {
+    if (!slot) {
+        axs_notchhome_diagLogF("slot: (nil)");
+        return;
+    }
+    const char *clsName = slot.className.UTF8String;
+    const char *selName = slot.selectorName.UTF8String;
+    Class cls = NSClassFromString(slot.className);
+    if (!cls) {
+        axs_notchhome_diagLogF("slot %s.%s installed=%d stage=class-missing", clsName, selName, (int)slot.installed);
+        return;
+    }
+    Method method = class_getInstanceMethod(cls, NSSelectorFromString(slot.selectorName));
+    if (!method) {
+        axs_notchhome_diagLogF("slot %s.%s installed=%d stage=method-missing", clsName, selName, (int)slot.installed);
+        return;
+    }
+    char *returnType = method_copyReturnType(method);
+    char args[256] = {0};
+    unsigned argc = method_getNumberOfArguments(method);
+    for (unsigned i = 2; i < argc && i < 10; i++) {
+        char *argType = method_copyArgumentType(method, i);
+        if (argType) {
+            strncat(args, argType, sizeof(args) - strlen(args) - 2);
+            strncat(args, ",", sizeof(args) - strlen(args) - 1);
+            free(argType);
+        }
+    }
+    axs_notchhome_diagLogF("slot %s.%s installed=%d types ret=%s args=%s argc=%u",
+        clsName, selName, (int)slot.installed, returnType ? returnType : "?", args, argc);
+    free(returnType);
 }
 
 #pragma mark - Installation
@@ -384,6 +450,15 @@ static void axs_notchhome_installAll(void) {
             }
         }
     }
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotIsHome);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotWillBegin);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotDidEnd);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotInterrupt);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotFrame);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotScale);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotCorner);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotMatchMove);
+    axs_notchhome_diagSlot(sAxsNotchHomeSlotAnimAttrs);
     if (!sAxsNotchHomeIconRadiusIMP) {
         sAxsNotchHomeIconRadiusIMP = axs_notchhome_lookupIMP(modifier, @"_homeScreenIconCornerRadius",
                                                              "d", @[]);
@@ -397,6 +472,8 @@ static void axs_notchhome_installAll(void) {
             }
         }
     }
+    axs_notchhome_diagLogF("lookups: iconFrameForm=%ld iconRadiusForm=%ld",
+        (long)sAxsNotchHomeIconFrameForm, (long)sAxsNotchHomeIconRadiusForm);
 }
 
 %ctor {
@@ -405,6 +482,9 @@ static void axs_notchhome_installAll(void) {
             return;
         }
         sAxsNotchHomeEnabled = axs_notchhome_computeEnabled();
+        axs_notchhome_diagLogF("=== load: machine=%s sentinel=%d enabled=%d",
+            axs_notchhome_machineName().UTF8String,
+            (int)axs_notchhome_sentinelExists(), (int)sAxsNotchHomeEnabled);
         dispatch_async(dispatch_get_main_queue(), ^{
             axs_notchhome_installAll();
         });
