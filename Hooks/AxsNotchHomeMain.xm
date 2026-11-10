@@ -75,6 +75,7 @@ static NSUInteger sPrevIhYesAfter = 0, sPrevIhNoAfter = 0;
 static double sHsMinDuring = 9.0, sHsMinAfter = 9.0, sPrevHsMinAfter = 9.0;
 
 static double axs_notchhome_probeDouble(id object, SEL selector);
+static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot);
 
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotLayoutSettings;
 
