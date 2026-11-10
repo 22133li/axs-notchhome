@@ -46,6 +46,9 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotMatchMove;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotOpacityIndex;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotOpacityRole;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrsT;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrsZ;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotHomeAlpha;
 
 
 
@@ -258,32 +261,69 @@ static long long axs_notchhome_probeInt(id object, SEL selector) {
     return -999;
 }
 
+static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
+    static NSUInteger samples = 0;
+    if (samples >= 120 || !attributes) {
+        return;
+    }
+    samples++;
+    @try {
+        id position = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
+        id scale = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
+        const char *elemClass = element ? object_getClassName(element) : "?";
+        axs_notchhome_diagLogF("%s elem=%s pos{damp=%.3f resp=%.3f} scale{damp=%.3f resp=%.3f} pMode=%lld sMode=%lld",
+            tag, elemClass,
+            axs_notchhome_probeDouble(position, @selector(dampingRatio)),
+            axs_notchhome_probeDouble(position, @selector(response)),
+            axs_notchhome_probeDouble(scale, @selector(dampingRatio)),
+            axs_notchhome_probeDouble(scale, @selector(response)),
+            axs_notchhome_probeInt(attributes, @selector(positionUpdateMode)),
+            axs_notchhome_probeInt(attributes, @selector(scaleUpdateMode)));
+    } @catch (NSException *exception) {
+        axs_notchhome_diagLogF("%s probe failed", tag);
+    }
+}
+
 static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotAnimAttrs);
     id result = orig ? ((id (*)(id, SEL, id))orig)(self, _cmd, element) : nil;
-    if (!sAxsNotchHomeEnabled || !result) {
-        return result;
-    }
-    axs_notchhome_diagAnimCalls++;
-    static NSUInteger samples = 0;
-    if (samples < 40) {
-        samples++;
-        @try {
-            id attributes = result;
-            id position = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
-            id scale = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
-            axs_notchhome_diagLogF("attrs pos{damp=%.3f resp=%.3f} scale{damp=%.3f resp=%.3f} pMode=%lld sMode=%lld",
-                axs_notchhome_probeDouble(position, @selector(dampingRatio)),
-                axs_notchhome_probeDouble(position, @selector(response)),
-                axs_notchhome_probeDouble(scale, @selector(dampingRatio)),
-                axs_notchhome_probeDouble(scale, @selector(response)),
-                axs_notchhome_probeInt(attributes, @selector(positionUpdateMode)),
-                axs_notchhome_probeInt(attributes, @selector(scaleUpdateMode)));
-        } @catch (NSException *exception) {
-            axs_notchhome_diagLogF("attrs probe failed");
-        }
+    if (sAxsNotchHomeEnabled && result) {
+        axs_notchhome_diagAnimCalls++;
+        axs_notchhome_logAttrs("attrsG", result, element);
     }
     return result;
+}
+
+static id axs_notchhome_hookAnimationAttributesT(id self, SEL _cmd, id element) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotAnimAttrsT);
+    id result = orig ? ((id (*)(id, SEL, id))orig)(self, _cmd, element) : nil;
+    if (sAxsNotchHomeEnabled && result) {
+        axs_notchhome_logAttrs("attrsT", result, element);
+    }
+    return result;
+}
+
+static id axs_notchhome_hookAnimationAttributesZ(id self, SEL _cmd, id element) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotAnimAttrsZ);
+    id result = orig ? ((id (*)(id, SEL, id))orig)(self, _cmd, element) : nil;
+    if (sAxsNotchHomeEnabled && result) {
+        axs_notchhome_logAttrs("attrsZ", result, element);
+    }
+    return result;
+}
+
+static double axs_notchhome_hookHomeScreenAlpha(id self, SEL _cmd) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotHomeAlpha);
+    double original = orig ? ((double (*)(id, SEL))orig)(self, _cmd) : 1.0;
+    AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
+    if (axs_notchhome_stateActive(state)) {
+        static NSUInteger samples = 0;
+        if (samples < 60) {
+            samples++;
+            axs_notchhome_diagLogF("hsAlpha -> %.3f", original);
+        }
+    }
+    return original;
 }
 
 
@@ -398,7 +438,18 @@ static void axs_notchhome_installAll(void) {
     axs_notchhome_slot(&sAxsNotchHomeSlotOpacityRole, modifier, @"opacityForLayoutRole:inAppLayout:atIndex:");
     [sAxsNotchHomeSlotOpacityRole axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookOpacityRole
                                                            returnType:"d" argumentTypes:@[@"q", @"@", @"Q"]];
-    axs_notchhome_diagLogF("wrap2 build: opacity + attrs passthrough logging");
+    axs_notchhome_slot(&sAxsNotchHomeSlotAnimAttrsT, @"SBTransitionSwitcherModifier",
+                       @"animationAttributesForLayoutElement:");
+    [sAxsNotchHomeSlotAnimAttrsT axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributesT
+                                                           returnType:"@" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotAnimAttrsZ, modifier,
+                       @"animationAttributesForLayoutElement:");
+    [sAxsNotchHomeSlotAnimAttrsZ axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributesZ
+                                                           returnType:"@" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotHomeAlpha, modifier, @"homeScreenAlpha");
+    [sAxsNotchHomeSlotHomeAlpha axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookHomeScreenAlpha
+                                                          returnType:"d" argumentTypes:@[]];
+    axs_notchhome_diagLogF("wrap3 build: attrs x3 + hsAlpha + opacity passthrough logging");
 }
 
 %ctor {
