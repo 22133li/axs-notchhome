@@ -72,6 +72,8 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotFrame;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotScale;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActionMatchMove;
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotVCActionIconOverlay;
 
 // Direct (non-hooked) lookup: which layout index is the app being zoomed.
 static IMP sAxsNotchHomeZoomCheckIMP = NULL;
@@ -277,8 +279,13 @@ static void axs_notchhome_postFinish(id self) {
             state.appLayout = nil;
         }
         sAxsNotchHomeTransitionActive = NO;
-        sAxsNotchHomeCurrentModifier = nil;
-        sAxsNotchHomeCurrentLayout = nil;
+        // sAxsNotchHomeCurrentModifier / sAxsNotchHomeCurrentLayout are
+        // deliberately NOT cleared here: the view controller can still
+        // deliver modifier actions while the end of the transition is
+        // being processed, and the SBFluidSwitcherViewController action
+        // hooks below qualify through this state's live flags (ended is
+        // already YES by then for anything later). They are overwritten
+        // at the next transitionWillBegin.
     }
 }
 
@@ -478,6 +485,88 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
 }
 
 
+// SBFluidSwitcherViewController modifier-action hooks, transcribed
+// from the original's registrar-B worker (shared worker at 0xd508,
+// reached from thunks 0xc478/0xc4a0 whose slot descriptors name the
+// class SBFluidSwitcherViewController and the selectors
+// _performModifierMatchMoveToIconViewAction: /
+// _performModifierIconOverlayVisibilityUpdateAction:).
+// Behavior: off the main thread, or with a nil action, the original
+// tail-calls the saved IMP untouched. Otherwise, when the action's
+// appLayout is the layout of the transition the notch state is active
+// for (the original qualifies through a live context lookup for the
+// layout, 0xafc4), it flips one BOOL ivar of the action object to 0
+// for the duration of the original call and restores it to 1 after:
+// _active for the match-move action, _visible for the icon-overlay
+// visibility action (small-string immediates at 0xd6d0/0xd6e0). If the
+// ivar is absent or not 1, the call passes through untouched. The
+// effect is that the view controller processes the match-move as
+// inactive and the icon overlay as not visible for notch-closed apps,
+// so the real icon is never hidden behind the overlay — the visible
+// symptom of skipping this is the closed app's icon sitting dark for
+// a beat after the window lands.
+static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SEL _cmd, id action, BOOL isOverlay) {
+    IMP orig = axs_notchhome_savedIMP(slot);
+    if (!orig) {
+        return;
+    }
+    void (*callOrig)(id, SEL, id) = (void (*)(id, SEL, id))orig;
+    if (!sAxsNotchHomeEnabled || ![NSThread isMainThread] || !action) {
+        callOrig(self, _cmd, action);
+        return;
+    }
+    BOOL called = NO;
+    @try {
+        id actionLayout = nil;
+        @try {
+            actionLayout = [action valueForKey:@"appLayout"];
+        } @catch (NSException *exception) {
+            actionLayout = nil;
+        }
+        AxsNotchHomeZoomState *state = sAxsNotchHomeCurrentModifier
+            ? axs_notchhome_stateForObject(sAxsNotchHomeCurrentModifier, NO) : nil;
+        BOOL qualify = actionLayout && sAxsNotchHomeCurrentLayout &&
+                       actionLayout == sAxsNotchHomeCurrentLayout &&
+                       axs_notchhome_stateActive(state);
+        if (!qualify) {
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        const char *ivarName = isOverlay ? "_visible" : "_active";
+        Ivar ivar = class_getInstanceVariable(object_getClass(action), ivarName);
+        if (!ivar) {
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        unsigned char *bytePtr = (unsigned char *)action + ivar_getOffset(ivar);
+        if (*bytePtr != 1) {
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        *bytePtr = 0;
+        called = YES;
+        callOrig(self, _cmd, action);
+        *bytePtr = 1;
+        axs_notchhome_diagLogF("stlog vcaction %s flipped for layout %p",
+            isOverlay ? "overlay" : "matchmove", actionLayout);
+    } @catch (NSException *exception) {
+        if (!called) {
+            callOrig(self, _cmd, action);
+        }
+    }
+}
+
+static void axs_notchhome_hookVCActionMatchMove(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActionMatchMove, self, _cmd, action, NO);
+}
+
+static void axs_notchhome_hookVCActionIconOverlay(id self, SEL _cmd, id action) {
+    axs_notchhome_vcActionWorker(sAxsNotchHomeSlotVCActionIconOverlay, self, _cmd, action, YES);
+}
+
 static void axs_notchhome_diagDumpClass(NSString *className) {
     Class cls = NSClassFromString(className);
     if (!cls) {
@@ -571,6 +660,18 @@ static void axs_notchhome_installAll(void) {
                      @"animationAttributesForLayoutElement:");
     [sAxsNotchHomeSlotAnimAttrs axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributes
                                                           returnType:"@" argumentTypes:@[@"@"]];
+
+    // Registrar B's two view-controller action hooks (see the worker
+    // above). Signature-verified like every other slot; if the class or
+    // method is absent the install silently skips, as in the original.
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCActionMatchMove, @"SBFluidSwitcherViewController",
+                     @"_performModifierMatchMoveToIconViewAction:");
+    [sAxsNotchHomeSlotVCActionMatchMove axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActionMatchMove
+                                                                  returnType:"v" argumentTypes:@[@"@"]];
+    axs_notchhome_slot(&sAxsNotchHomeSlotVCActionIconOverlay, @"SBFluidSwitcherViewController",
+                     @"_performModifierIconOverlayVisibilityUpdateAction:");
+    [sAxsNotchHomeSlotVCActionIconOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCActionIconOverlay
+                                                                     returnType:"v" argumentTypes:@[@"@"]];
 
     if (!sAxsNotchHomeZoomCheckIMP) {
         sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
