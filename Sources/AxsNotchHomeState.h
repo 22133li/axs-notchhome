@@ -20,6 +20,9 @@
 @property (nonatomic, weak) id appLayout;
 @end
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Returns the state attached to the object, optionally creating it.
 AxsNotchHomeZoomState *axs_notchhome_stateForObject(id object, BOOL create);
 
@@ -36,3 +39,6 @@ UIWindow *axs_notchhome_findSwitcherWindow(void);
 // Plausibility check for a captured bounds rect, mirroring the audited
 // validator (finite, width between 300 and 500 points).
 BOOL axs_notchhome_isPlausibleBounds(CGRect rect);
+#ifdef __cplusplus
+}
+#endif

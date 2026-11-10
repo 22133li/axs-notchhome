@@ -21,5 +21,11 @@
 
 // Validates a method signature the same way and returns its IMP without
 // installing any hook (used for the original's direct-lookup helpers).
+#ifdef __cplusplus
+extern "C" {
+#endif
 IMP axs_notchhome_lookupIMP(NSString *className, NSString *selectorName,
                             const char *returnType, NSArray<NSString *> *argumentTypes);
+#ifdef __cplusplus
+}
+#endif
