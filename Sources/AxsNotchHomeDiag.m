@@ -13,6 +13,7 @@ NSUInteger axs_notchhome_diagCornerCalls = 0;
 NSUInteger axs_notchhome_diagMatchCalls = 0;
 NSUInteger axs_notchhome_diagAnimCalls = 0;
 NSUInteger axs_notchhome_diagAnimSkip = 0;
+NSUInteger axs_notchhome_diagAnimResp = 0;
 NSInteger axs_notchhome_diagLastStartedAtHome = -99;
 NSInteger axs_notchhome_diagLastBoundsOK = -99;
 
