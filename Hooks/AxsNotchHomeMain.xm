@@ -137,8 +137,11 @@ static void axs_notchhome_captureBegin(id self, AxsNotchHomeZoomState *state) {
 
 static id axs_notchhome_hookTransitionWillBegin(id self, SEL _cmd) {
     if (sAxsNotchHomeEnabled && [NSThread isMainThread]) {
-        AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, YES);
-        axs_notchhome_captureBegin(self, state);
+        @try {
+            AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, YES);
+            axs_notchhome_captureBegin(self, state);
+        } @catch (NSException *exception) {
+        }
     }
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotWillBegin);
     return orig ? ((id (*)(id, SEL))orig)(self, _cmd) : nil;
@@ -255,28 +258,42 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
     if (!sAxsNotchHomeEnabled || !result) {
         return result;
     }
-    SBSwitcherAnimationAttributes *attributes = (SBSwitcherAnimationAttributes *)result;
-    SBSwitcherAnimationAttributes *copy = [attributes mutableCopy];
-    if (!copy) {
+    // On iOS 15.4 the real attributes object does not necessarily respond
+    // to the settings accessors the original binary referenced; the first
+    // build crashed SpringBoard with an unrecognized-selector exception
+    // here. Every private call is guarded, and no exception may escape.
+    @try {
+        SBSwitcherAnimationAttributes *attributes = (SBSwitcherAnimationAttributes *)result;
+        if (![attributes respondsToSelector:@selector(positionSettings)] ||
+            ![attributes respondsToSelector:@selector(scaleSettings)]) {
+            return result;
+        }
+        SBSwitcherAnimationAttributes *copy = [attributes mutableCopy];
+        if (!copy) {
+            return result;
+        }
+        SBFFluidBehaviorSettings *position = [copy positionSettings];
+        if (position && [position respondsToSelector:@selector(setDampingRatio:)] &&
+            [copy respondsToSelector:@selector(setPositionSettings:)]) {
+            SBFFluidBehaviorSettings *positionCopy = [position mutableCopy];
+            if (positionCopy) {
+                [positionCopy setDampingRatio:kAxsNotchHomePositionDamping];
+                [copy setPositionSettings:positionCopy];
+            }
+        }
+        SBFFluidBehaviorSettings *scale = [copy scaleSettings];
+        if (scale && [scale respondsToSelector:@selector(setDampingRatio:)] &&
+            [copy respondsToSelector:@selector(setScaleSettings:)]) {
+            SBFFluidBehaviorSettings *scaleCopy = [scale mutableCopy];
+            if (scaleCopy) {
+                [scaleCopy setDampingRatio:kAxsNotchHomeScaleDamping];
+                [copy setScaleSettings:scaleCopy];
+            }
+        }
+        return copy;
+    } @catch (NSException *exception) {
         return result;
     }
-    SBFFluidBehaviorSettings *position = [copy positionSettings];
-    if (position && [position respondsToSelector:@selector(setDampingRatio:)]) {
-        SBFFluidBehaviorSettings *positionCopy = [position mutableCopy];
-        if (positionCopy) {
-            [positionCopy setDampingRatio:kAxsNotchHomePositionDamping];
-            [copy setPositionSettings:positionCopy];
-        }
-    }
-    SBFFluidBehaviorSettings *scale = [copy scaleSettings];
-    if (scale && [scale respondsToSelector:@selector(setDampingRatio:)]) {
-        SBFFluidBehaviorSettings *scaleCopy = [scale mutableCopy];
-        if (scaleCopy) {
-            [scaleCopy setDampingRatio:kAxsNotchHomeScaleDamping];
-            [copy setScaleSettings:scaleCopy];
-        }
-    }
-    return copy;
 }
 
 #pragma mark - Installation
