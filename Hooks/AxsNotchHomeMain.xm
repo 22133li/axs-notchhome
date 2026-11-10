@@ -125,8 +125,28 @@ static void axs_notchhome_preFinish(id self) {
     }
 }
 
+// Per-transition summary trackers: the values that matter (animation
+// settings for the app layout, opacity, home-screen alpha dip) are folded
+// into one "sum" line per transition so they survive any log truncation.
+static double sSumAttrsG[4] = {-1, -1, -1, -1};
+static BOOL sSumAttrsGValid = NO;
+static double sSumAttrsT[4] = {-1, -1, -1, -1};
+static BOOL sSumAttrsTValid = NO;
+static double sSumOpR[2] = {-1, -1};
+static double sSumHsMin = 1.0;
+static BOOL sSumHsSeen = NO;
+
 static void axs_notchhome_postFinish(id self) {
     axs_notchhome_diagDidEnd++;
+    axs_notchhome_diagLogF("sum aG{%.3f %.3f %.3f %.3f} aT{%.3f %.3f %.3f %.3f} opR{%.2f %.2f} hsMin=%.3f",
+        sSumAttrsG[0], sSumAttrsG[1], sSumAttrsG[2], sSumAttrsG[3],
+        sSumAttrsT[0], sSumAttrsT[1], sSumAttrsT[2], sSumAttrsT[3],
+        sSumOpR[0], sSumOpR[1], sSumHsSeen ? sSumHsMin : -1.0);
+    sSumAttrsGValid = NO; sSumAttrsTValid = NO;
+    sSumAttrsG[0] = sSumAttrsG[1] = sSumAttrsG[2] = sSumAttrsG[3] = -1;
+    sSumAttrsT[0] = sSumAttrsT[1] = sSumAttrsT[2] = sSumAttrsT[3] = -1;
+    sSumOpR[0] = sSumOpR[1] = -1;
+    sSumHsMin = 1.0; sSumHsSeen = NO;
     axs_notchhome_diagLogF("transition end: willBegin=%lu didEnd=%lu frame=%lu frameActive=%lu iconOK=%lu scale=%lu corner=%lu match=%lu anim=%lu animSkip=%lu lastStartedAtHome=%ld boundsOK=%ld",
         (unsigned long)axs_notchhome_diagWillBegin, (unsigned long)axs_notchhome_diagDidEnd,
         (unsigned long)axs_notchhome_diagFrameCalls, (unsigned long)axs_notchhome_diagFrameActive,
@@ -217,6 +237,9 @@ static double axs_notchhome_hookOpacityIndex(id self, SEL _cmd, NSUInteger index
 static double axs_notchhome_hookOpacityRole(id self, SEL _cmd, long long role, id appLayout, NSUInteger index) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotOpacityRole);
     double original = orig ? ((double (*)(id, SEL, long long, id, NSUInteger))orig)(self, _cmd, role, appLayout, index) : 1.0;
+    if (role == 1 && index < 2) {
+        sSumOpR[index] = original;
+    }
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
     if (axs_notchhome_stateActive(state)) {
         static NSUInteger samples = 0;
@@ -262,23 +285,31 @@ static long long axs_notchhome_probeInt(id object, SEL selector) {
 }
 
 static void axs_notchhome_logAttrs(const char *tag, id attributes, id element) {
-    static NSUInteger samples = 0;
-    if (samples >= 120 || !attributes) {
+    if (!attributes) {
         return;
     }
-    samples++;
     @try {
         id position = [attributes respondsToSelector:@selector(positionSettings)] ? [attributes positionSettings] : nil;
         id scale = [attributes respondsToSelector:@selector(scaleSettings)] ? [attributes scaleSettings] : nil;
         const char *elemClass = element ? object_getClassName(element) : "?";
-        axs_notchhome_diagLogF("%s elem=%s pos{damp=%.3f resp=%.3f} scale{damp=%.3f resp=%.3f} pMode=%lld sMode=%lld",
-            tag, elemClass,
-            axs_notchhome_probeDouble(position, @selector(dampingRatio)),
-            axs_notchhome_probeDouble(position, @selector(response)),
-            axs_notchhome_probeDouble(scale, @selector(dampingRatio)),
-            axs_notchhome_probeDouble(scale, @selector(response)),
-            axs_notchhome_probeInt(attributes, @selector(positionUpdateMode)),
-            axs_notchhome_probeInt(attributes, @selector(scaleUpdateMode)));
+        double pd = axs_notchhome_probeDouble(position, @selector(dampingRatio));
+        double pr = axs_notchhome_probeDouble(position, @selector(response));
+        double sd = axs_notchhome_probeDouble(scale, @selector(dampingRatio));
+        double sr = axs_notchhome_probeDouble(scale, @selector(response));
+        if (elemClass && strcmp(elemClass, "SBAppLayout") == 0 && !isnan(pd)) {
+            double *dst = NULL;
+            if (strcmp(tag, "attrsG") == 0) { dst = sSumAttrsG; sSumAttrsGValid = YES; }
+            if (strcmp(tag, "attrsT") == 0) { dst = sSumAttrsT; sSumAttrsTValid = YES; }
+            if (dst) { dst[0] = pd; dst[1] = pr; dst[2] = sd; dst[3] = sr; }
+        }
+        static NSUInteger samples = 0;
+        if (samples < 120) {
+            samples++;
+            axs_notchhome_diagLogF("%s elem=%s pos{damp=%.3f resp=%.3f} scale{damp=%.3f resp=%.3f} pMode=%lld sMode=%lld",
+                tag, elemClass, pd, pr, sd, sr,
+                axs_notchhome_probeInt(attributes, @selector(positionUpdateMode)),
+                axs_notchhome_probeInt(attributes, @selector(scaleUpdateMode)));
+        }
     } @catch (NSException *exception) {
         axs_notchhome_diagLogF("%s probe failed", tag);
     }
@@ -315,6 +346,10 @@ static id axs_notchhome_hookAnimationAttributesZ(id self, SEL _cmd, id element) 
 static double axs_notchhome_hookHomeScreenAlpha(id self, SEL _cmd) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotHomeAlpha);
     double original = orig ? ((double (*)(id, SEL))orig)(self, _cmd) : 1.0;
+    if (!sSumHsSeen || original < sSumHsMin) {
+        sSumHsMin = original;
+        sSumHsSeen = YES;
+    }
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
     if (axs_notchhome_stateActive(state)) {
         static NSUInteger samples = 0;
@@ -449,7 +484,7 @@ static void axs_notchhome_installAll(void) {
     axs_notchhome_slot(&sAxsNotchHomeSlotHomeAlpha, modifier, @"homeScreenAlpha");
     [sAxsNotchHomeSlotHomeAlpha axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookHomeScreenAlpha
                                                           returnType:"d" argumentTypes:@[]];
-    axs_notchhome_diagLogF("wrap3 build: attrs x3 + hsAlpha + opacity passthrough logging");
+    axs_notchhome_diagLogF("wrap4 build: per-transition summary lines");
 }
 
 %ctor {
