@@ -74,6 +74,49 @@ static NSUInteger sIhYesAfter = 0, sIhNoAfter = 0;
 static NSUInteger sPrevIhYesAfter = 0, sPrevIhNoAfter = 0;
 static double sHsMinDuring = 9.0, sHsMinAfter = 9.0, sPrevHsMinAfter = 9.0;
 
+static double axs_notchhome_probeDouble(id object, SEL selector);
+
+static AxsNotchHomeHookSlot *sAxsNotchHomeSlotLayoutSettings;
+
+static void axs_notchhome_diagDumpClassFull(NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        axs_notchhome_diagLogF("dumpfull %s: class-missing", className.UTF8String);
+        return;
+    }
+    unsigned count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    axs_notchhome_diagLogF("dumpfull %s: %u methods", className.UTF8String, count);
+    for (unsigned i = 0; i < count; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        const char *types = method_getTypeEncoding(methods[i]);
+        axs_notchhome_diagLogF("  %s %s", name.UTF8String, types ? types : "?");
+    }
+    if (methods) {
+        free(methods);
+    }
+}
+
+static id axs_notchhome_hookLayoutSettings(id self, SEL _cmd, CGPoint center) {
+    IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotLayoutSettings);
+    id result = orig ? ((id (*)(id, SEL, CGPoint))orig)(self, _cmd, center) : nil;
+    if (result && sW6InTransition) {
+        static NSUInteger samples = 0;
+        if (samples < 24) {
+            samples++;
+            @try {
+                axs_notchhome_diagLogF("layoutSettings center={%.0f %.0f} -> %s damp=%.3f resp=%.3f",
+                    center.x, center.y, object_getClassName(result),
+                    axs_notchhome_probeDouble(result, @selector(dampingRatio)),
+                    axs_notchhome_probeDouble(result, @selector(response)));
+            } @catch (NSException *exception) {
+                axs_notchhome_diagLogF("layoutSettings probe failed");
+            }
+        }
+    }
+    return result;
+}
+
 static void axs_notchhome_w5Reset(void) {
     sW5MinScale = 9.0;
     sW5ZoomScale = -1.0;
@@ -524,6 +567,8 @@ static void axs_notchhome_installAll(void) {
         axs_notchhome_diagDumpClass(kAxsNotchHomeModifierClass);
         axs_notchhome_diagDumpClass(@"SBTransitionSwitcherModifier");
         axs_notchhome_diagDumpClass(kAxsNotchHomeGestureModifierClass);
+        axs_notchhome_diagDumpClassFull(@"SBFFluidBehaviorSettings");
+        axs_notchhome_diagDumpClassFull(@"SBSwitcherAnimationAttributes");
     }
 
     axs_notchhome_slot(&sAxsNotchHomeSlotIsHome, modifier, @"_isEffectivelyHome");
@@ -605,6 +650,10 @@ static void axs_notchhome_installAll(void) {
     [sAxsNotchHomeSlotHomeAlpha axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookHomeScreenAlpha
                                                           returnType:"d" argumentTypes:@[]];
 
+    axs_notchhome_slot(&sAxsNotchHomeSlotLayoutSettings, modifier, @"layoutSettingsForTargetCenter:");
+    [sAxsNotchHomeSlotLayoutSettings axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookLayoutSettings
+                                                               returnType:"@" argumentTypes:@[@"{CGPoint=dd}"]];
+
     axs_notchhome_slot(&sAxsNotchHomeSlotIconVis, modifier, @"shouldUpdateIconViewVisibility");
     [sAxsNotchHomeSlotIconVis axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookIconVis
                                                         returnType:"B" argumentTypes:@[]];
@@ -621,7 +670,7 @@ static void axs_notchhome_installAll(void) {
                        @"_performModifierIconOverlayVisibilityUpdateAction:");
     [sAxsNotchHomeSlotVCOverlay axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookVCOverlay
                                                           returnType:"v" argumentTypes:@[@"@"]];
-    axs_notchhome_diagLogF("wrap6 build: isEffectivelyHome + hsAlpha phase-split tracking");
+    axs_notchhome_diagLogF("wrap6 build: ih/hsAlpha phase-split + settings class dumps + layoutSettings probe");
 }
 
 %ctor {
