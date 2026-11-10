@@ -84,15 +84,6 @@ static CGRect axs_notchhome_iconFrame(id modifier, NSUInteger index, BOOL *valid
 
 static double axs_notchhome_iconRadius(id modifier, BOOL *valid) {
     *valid = NO;
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotIsHome);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotWillBegin);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotDidEnd);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotInterrupt);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotFrame);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotScale);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotCorner);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotMatchMove);
-    axs_notchhome_diagSlot(sAxsNotchHomeSlotAnimAttrs);
     if (!sAxsNotchHomeIconRadiusIMP) {
         return 0;
     }
