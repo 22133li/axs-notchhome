@@ -29,15 +29,8 @@ static const char *const kAxsNotchHomeRadiiEncoding = "{UIRectCornerRadii=dddd}"
 static const double kAxsNotchHomePositionDamping = 1.28;
 static const double kAxsNotchHomeScaleDamping = 0.97;
 
-// Notch suction target. Device pair data (2026-11-10) proved the stock
-// zoom keeps the layout frame's size and moves its CENTER to the icon
-// center while scaleForIndex: carries the shrink (428-wide frame,
-// center = icon center, scale 0.150 = 64/428). Redirecting the zoom to
-// the notch therefore means: same frame size, center moved to the
-// notch center, and scale set so the window ends notch-wide.
-static const double kAxsNotchHomeNotchCenterY = 20.0;
-static const double kAxsNotchHomeNotchWidth = 170.0;
-static const double kAxsNotchHomeNotchRadius = 40.0;
+
+
 
 static BOOL sAxsNotchHomeEnabled = NO;
 
@@ -51,9 +44,7 @@ static AxsNotchHomeHookSlot *sAxsNotchHomeSlotCorner;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotMatchMove;
 static AxsNotchHomeHookSlot *sAxsNotchHomeSlotAnimAttrs;
 
-// Direct (non-hooked) lookup, mirroring the original's helper at 0x8430:
-// which layout index is the app being zoomed (others keep stock values).
-static IMP sAxsNotchHomeZoomCheckIMP = NULL;
+
 
 static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
     if (!slot) {
@@ -68,23 +59,6 @@ static IMP axs_notchhome_savedIMP(AxsNotchHomeHookSlot *slot) {
 static BOOL axs_notchhome_stateActive(AxsNotchHomeZoomState *state) {
     return sAxsNotchHomeEnabled && [NSThread isMainThread] && state &&
            state.began && !state.finishing && state.startedAtHomeCache == 0;
-}
-
-static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
-    if (sAxsNotchHomeZoomCheckIMP) {
-        return ((BOOL (*)(id, SEL, NSUInteger))sAxsNotchHomeZoomCheckIMP)(
-            modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
-    }
-    return index == 0;
-}
-
-static CGRect axs_notchhome_notchTargetFrame(CGRect original, AxsNotchHomeZoomState *state) {
-    CGFloat boundsWidth = state.cachedBoundsValid ? CGRectGetWidth(state.cachedBounds)
-                                                  : CGRectGetWidth(original);
-    CGPoint center = CGPointMake(boundsWidth / 2.0, (CGFloat)kAxsNotchHomeNotchCenterY);
-    return CGRectMake(center.x - CGRectGetWidth(original) / 2.0,
-                      center.y - CGRectGetHeight(original) / 2.0,
-                      CGRectGetWidth(original), CGRectGetHeight(original));
 }
 
 #pragma mark - Hook implementations
@@ -200,21 +174,16 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
-    if (!axs_notchhome_isZoomIndex(self, index)) {
-        return original;
-    }
-    static NSUInteger notchLogs = 0;
-    if (notchLogs < 20) {
-        notchLogs++;
-        axs_notchhome_diagLogF("notch idx=%lu from=(%.0f,%.0f,%.0f,%.0f) center->(%.0f,%.0f)",
+    static NSUInteger pairSamples = 0;
+    if (pairSamples < 80) {
+        pairSamples++;
+        double pairedScale = (index == 0) ? state.lastOrigScale0 : state.lastOrigScale1;
+        axs_notchhome_diagLogF("pair idx=%lu f=(%.0f,%.0f,%.0f,%.0f) s=%.3f",
             (unsigned long)index,
             CGRectGetMinX(original), CGRectGetMinY(original),
-            CGRectGetWidth(original), CGRectGetHeight(original),
-            (state.cachedBoundsValid ? CGRectGetWidth(state.cachedBounds) : CGRectGetWidth(original)) / 2.0,
-            kAxsNotchHomeNotchCenterY);
+            CGRectGetWidth(original), CGRectGetHeight(original), pairedScale);
     }
-    axs_notchhome_diagIconOK++;
-    return axs_notchhome_notchTargetFrame(original, state);
+    return original;
 }
 
 static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
@@ -227,14 +196,7 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     } else if (state && index == 1) {
         state.lastOrigScale1 = original;
     }
-    if (!axs_notchhome_stateActive(state) || !state.cachedBoundsValid) {
-        return original;
-    }
-    if (!axs_notchhome_isZoomIndex(self, index)) {
-        return original;
-    }
-    double scale = kAxsNotchHomeNotchWidth / CGRectGetWidth(state.cachedBounds);
-    return (scale > 0.0 && scale <= 1.0) ? scale : original;
+    return original;
 }
 
 static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUInteger index) {
@@ -248,12 +210,14 @@ static AxsNotchHomeCornerRadii axs_notchhome_hookCorner(id self, SEL _cmd, NSUIn
     if (!axs_notchhome_stateActive(state)) {
         return original;
     }
-    if (!axs_notchhome_isZoomIndex(self, index)) {
-        return original;
+    static NSUInteger cornerSamples = 0;
+    if (cornerSamples < 40) {
+        cornerSamples++;
+        axs_notchhome_diagLogF("wrapC idx=%lu r=(%.1f,%.1f,%.1f,%.1f)",
+            (unsigned long)index,
+            original.topLeft, original.topRight, original.bottomLeft, original.bottomRight);
     }
-    AxsNotchHomeCornerRadii radii = {kAxsNotchHomeNotchRadius, kAxsNotchHomeNotchRadius,
-                                     kAxsNotchHomeNotchRadius, kAxsNotchHomeNotchRadius};
-    return radii;
+    return original;
 }
 
 static BOOL axs_notchhome_hookShouldMatchMove(id self, SEL _cmd) {
@@ -419,12 +383,7 @@ static void axs_notchhome_installAll(void) {
     [sAxsNotchHomeSlotAnimAttrs axs_notchhome_installWithReplacement:(IMP)axs_notchhome_hookAnimationAttributes
                                                           returnType:"@" argumentTypes:@[@"@"]];
 
-    // Direct lookup for the zoom-index check (not hooked).
-    if (!sAxsNotchHomeZoomCheckIMP) {
-        sAxsNotchHomeZoomCheckIMP = axs_notchhome_lookupIMP(modifier, @"_isIndexZoomAppLayout:",
-                                                            "B", @[@"Q"]);
-    }
-    axs_notchhome_diagLogF("lookups: zoomCheckIMP=%p", (void *)sAxsNotchHomeZoomCheckIMP);
+    axs_notchhome_diagLogF("wrap build: passthrough logging");
 }
 
 %ctor {
