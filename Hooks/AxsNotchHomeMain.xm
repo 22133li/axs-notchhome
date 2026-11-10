@@ -221,20 +221,17 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
         return original;
     }
     axs_notchhome_diagFrameActive++;
+    static NSUInteger pairSamples = 0;
+    if (pairSamples < 60) {
+        pairSamples++;
+        double pairedScale = (index == 0) ? state.lastOrigScale0 : state.lastOrigScale1;
+        axs_notchhome_diagLogF("pair idx=%lu f=(%.0f,%.0f,%.0f,%.0f) s=%.3f",
+            (unsigned long)index,
+            CGRectGetMinX(original), CGRectGetMinY(original),
+            CGRectGetWidth(original), CGRectGetHeight(original), pairedScale);
+    }
     BOOL valid = NO;
     CGRect icon = axs_notchhome_candidateIconFrame(self, index, original, &valid);
-    static NSUInteger frameSamples = 0;
-    if (frameSamples < 8) {
-        frameSamples++;
-        BOOL fsValid = NO;
-        CGRect fsSeed = CGRectMake(0, 0, CGRectGetWidth(state.cachedBounds), CGRectGetHeight(state.cachedBounds));
-        CGRect iconFS = axs_notchhome_candidateIconFrame(self, index, fsSeed, &fsValid);
-        axs_notchhome_diagLogF("sample idx=%lu orig=(%.0f,%.0f,%.0f,%.0f) cand=(%.0f,%.0f,%.0f,%.0f) valid=%d candFS=(%.0f,%.0f,%.0f,%.0f) validFS=%d",
-            (unsigned long)index,
-            CGRectGetMinX(original), CGRectGetMinY(original), CGRectGetWidth(original), CGRectGetHeight(original),
-            CGRectGetMinX(icon), CGRectGetMinY(icon), CGRectGetWidth(icon), CGRectGetHeight(icon), (int)valid,
-            CGRectGetMinX(iconFS), CGRectGetMinY(iconFS), CGRectGetWidth(iconFS), CGRectGetHeight(iconFS), (int)fsValid);
-    }
     if (valid) {
         axs_notchhome_diagIconOK++;
     }
@@ -246,6 +243,11 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     IMP orig = axs_notchhome_savedIMP(sAxsNotchHomeSlotScale);
     double original = orig ? ((double (*)(id, SEL, NSUInteger))orig)(self, _cmd, index) : 1.0;
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
+    if (state && index == 0) {
+        state.lastOrigScale0 = original;
+    } else if (state && index == 1) {
+        state.lastOrigScale1 = original;
+    }
     if (!axs_notchhome_stateActive(state) || !state.cachedBoundsValid) {
         return original;
     }

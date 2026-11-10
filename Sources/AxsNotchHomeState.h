@@ -16,6 +16,8 @@
 @property (nonatomic, assign) NSInteger mutationDepth;
 @property (nonatomic, assign) CGRect cachedBounds;
 @property (nonatomic, assign) BOOL cachedBoundsValid;
+@property (nonatomic, assign) double lastOrigScale0;
+@property (nonatomic, assign) double lastOrigScale1;
 @property (nonatomic, weak) UIWindow *targetWindow;
 @property (nonatomic, weak) id appLayout;
 @end
