@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "name": "NotchHome",
+  "id": "notchhome",
+  "display_name": "NotchHome",
+  "class_prefix": "AxsNotchHome",
+  "symbol_prefix": "axs_notchhome",
+  "package": "com.axs.notchhome",
+  "bundle": "com.apple.springboard",
+  "sdk_version": "16.5",
+  "minimum_ios": "15.0",
+  "preferences": false,
+  "slider": false,
+  "github_actions": true
+}

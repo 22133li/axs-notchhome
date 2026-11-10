@@ -1,0 +1,11 @@
+Package: com.axs.notchhome
+Name: NotchHome
+Version: 5.2.0
+Architecture: iphoneos-arm
+Description: Notch Suction Polish For iOS15+ - compatible reimplementation based on a static audit of NotchHome 0.5.0
+Maintainer: Axs
+Author: Axs
+Section: Axs-Tweaks
+Depends: mobilesubstrate
+Icon: https://axs66.github.io/pro/icon/notchhome.png
+Sileodepiction: https://axs66.github.io/pro/sileodepiction/notchhome/js.json
