@@ -512,13 +512,15 @@ static id axs_notchhome_hookAnimationAttributes(id self, SEL _cmd, id element) {
 //     ivar is 0, it is forced to 1 during the original call and
 //     restored to 0 after, i.e. the icon view is kept visible.
 // Both workers tail-call the original IMP untouched off the main
-// thread or for a nil response, and qualify the flip through two
-// static (String, String) whitelist membership tests (0xbfac) plus a
-// live per-layout context lookup (0xafc4); the whitelist pair
-// semantics are the one piece not fully decoded, and the latch below
-// (this leg's geometry override applied for this layout) is the
-// operational equivalent used here. If the ivar is absent or not in
-// the state to flip, the call passes through untouched.
+// thread or for a nil response. The flip gate is transcribed as the
+// 8 steps of reaudit section 10: class-name pair-table membership,
+// _appLayout resolvable with a live context for it, the ivar found
+// on the action's own class, its encoding in {"B", "c"}, the offset
+// bounds-checked, and the byte in the expected state. Step 3's
+// context lookup (0xafc4) is the one piece whose internals are
+// unverified; the latch (this leg's geometry override applied for
+// exactly this layout) stands in for it. Any failed step passes the
+// call through untouched.
 enum {
     kAxsNotchHomeVCFlipActiveDown = 0,
     kAxsNotchHomeVCFlipVisibleDown = 1,
@@ -536,8 +538,38 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
         return;
     }
     static const char *kindNames[] = {"matchmove", "overlay", "iconview"};
+    // Step 2's class-name pair tables, transcribed from the original's
+    // static (String, String) tables (reaudit section 10): MatchMove
+    // at 0x18f78, IconOverlay at 0x19008, IconViewVisibility at
+    // 0x18ef0; the strings themselves sit in __cstring.
+    static const char *pairResponse[] = {
+        "SBMatchMoveToIconViewSwitcherEventResponse",
+        "SBIconOverlayVisibilitySwitcherEventResponse",
+        "SBIconViewVisibilitySwitcherEventResponse",
+    };
+    static const char *pairAction[] = {
+        "SBMatchMoveToIconViewSwitcherModifierAction",
+        "SBIconOverlayVisibilitySwitcherModifierAction",
+        "SBIconViewVisibilitySwitcherModifierAction",
+    };
     BOOL called = NO;
     @try {
+        // Step 2: the action's class name must be in this family's
+        // pair table. (Step 1 — main thread, non-nil action — is the
+        // fast path above.)
+        Class actionClass = object_getClass(action);
+        const char *className = actionClass ? class_getName(actionClass) : "";
+        if (strcmp(className, pairResponse[kind]) != 0 &&
+            strcmp(className, pairAction[kind]) != 0) {
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        // Step 3: the action's _appLayout must resolve, and a live
+        // context must exist for it (the original calls 0xafc4; its
+        // internals are unverified, and the latch — this leg's
+        // geometry override applied for exactly this layout — is the
+        // operational equivalent used here).
         id actionLayout = nil;
         @try {
             actionLayout = [action valueForKey:@"appLayout"];
@@ -546,18 +578,14 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
         }
         AxsNotchHomeZoomState *state = sAxsNotchHomeCurrentModifier
             ? axs_notchhome_stateForObject(sAxsNotchHomeCurrentModifier, NO) : nil;
-        // Qualification: see the header comment. Responses generated
-        // by transitionDidEnd are performed after the modifier chain
-        // has finished, so the live flags no longer describe the leg;
-        // the latch carries the fact that this leg's override applied.
         BOOL qualify = actionLayout && sAxsNotchHomeCurrentLayout &&
                        actionLayout == sAxsNotchHomeCurrentLayout &&
                        state && state.notchCloseLatched;
         static NSUInteger actionLogs = 0;
         if (actionLogs < 60) {
             actionLogs++;
-            axs_notchhome_diagLogF("stlog vcaction seen %s layout=%p cur=%p latch=%d qualify=%d",
-                kindNames[kind], actionLayout, sAxsNotchHomeCurrentLayout,
+            axs_notchhome_diagLogF("stlog vcaction seen %s cls=%s layout=%p cur=%p latch=%d qualify=%d",
+                kindNames[kind], className, actionLayout, sAxsNotchHomeCurrentLayout,
                 state ? (int)state.notchCloseLatched : -1, (int)qualify);
         }
         if (!qualify) {
@@ -565,24 +593,52 @@ static void axs_notchhome_vcActionWorker(AxsNotchHomeHookSlot *slot, id self, SE
             callOrig(self, _cmd, action);
             return;
         }
+        // Steps 4-7: find the BOOL ivar on the action's own class
+        // (step 4 is actionClass above), check its type encoding
+        // against {"B", "c"} (the original's table at 0x18fc8), and
+        // bounds-check the offset against the instance size.
         const char *ivarName = (kind == kAxsNotchHomeVCFlipActiveDown) ? "_active" : "_visible";
-        Ivar ivar = class_getInstanceVariable(object_getClass(action), ivarName);
+        Ivar ivar = class_getInstanceVariable(actionClass, ivarName);
         static NSUInteger flipLogs = 0;
         if (!ivar) {
             if (flipLogs < 20) {
                 flipLogs++;
                 axs_notchhome_diagLogF("stlog vcflip %s NO-IVAR %s on %s",
-                    kindNames[kind], ivarName, class_getName(object_getClass(action)));
+                    kindNames[kind], ivarName, className);
             }
             called = YES;
             callOrig(self, _cmd, action);
             return;
         }
-        unsigned char *bytePtr = (unsigned char *)(__bridge void *)action + ivar_getOffset(ivar);
+        const char *encoding = ivar_getTypeEncoding(ivar);
+        if (!encoding || (strcmp(encoding, "B") != 0 && strcmp(encoding, "c") != 0)) {
+            if (flipLogs < 20) {
+                flipLogs++;
+                axs_notchhome_diagLogF("stlog vcflip %s BAD-ENC %s enc=%s",
+                    kindNames[kind], ivarName, encoding ? encoding : "?");
+            }
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        ptrdiff_t offset = ivar_getOffset(ivar);
+        if (offset < 8 || (size_t)(offset + 1) > class_getInstanceSize(actionClass)) {
+            if (flipLogs < 20) {
+                flipLogs++;
+                axs_notchhome_diagLogF("stlog vcflip %s BAD-OFF %s off=%td",
+                    kindNames[kind], ivarName, offset);
+            }
+            called = YES;
+            callOrig(self, _cmd, action);
+            return;
+        }
+        // Step 8: flip only from the expected current value, call the
+        // original, restore. IconViewVisibility is inverted (0 -> 1).
+        unsigned char *bytePtr = (unsigned char *)(__bridge void *)action + offset;
         if (flipLogs < 20) {
             flipLogs++;
             axs_notchhome_diagLogF("stlog vcflip %s ivar %s off=%td byte=%d",
-                kindNames[kind], ivarName, ivar_getOffset(ivar), (int)*bytePtr);
+                kindNames[kind], ivarName, offset, (int)*bytePtr);
         }
         if (kind == kAxsNotchHomeVCFlipVisibleUp) {
             if (*bytePtr != 0) {
