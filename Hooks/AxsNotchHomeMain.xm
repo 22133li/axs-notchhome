@@ -136,7 +136,15 @@ static BOOL axs_notchhome_isZoomIndex(id modifier, NSUInteger index) {
         return ((BOOL (*)(id, SEL, NSUInteger))sAxsNotchHomeZoomCheckIMP)(
             modifier, NSSelectorFromString(@"_isIndexZoomAppLayout:"), index);
     }
-    return index == 0;
+    // Parity fix (-47): no saved IMP means zoom membership cannot be
+    // proven, and the original's workers hard-require it — pass the
+    // index through instead of the index==0 fallback that lingered
+    // here from -36 (the -39 parity pass removed that fallback from
+    // the target-index path but missed this one). A leg with no
+    // provable zoom index — e.g. a folder app re-entered from the
+    // switcher, which the original (device video, 2026-11-14) does
+    // NOT suck into the notch — must stay untouched.
+    return NO;
 }
 
 // The index the notch override applies to. Parity fix (-39): the
@@ -326,10 +334,12 @@ static CGRect axs_notchhome_hookFrame(id self, SEL _cmd, NSUInteger index) {
     AxsNotchHomeZoomState *state = axs_notchhome_stateForObject(self, NO);
     if (sStLogFrames < 3) {
         sStLogFrames++;
-        axs_notchhome_diagLogF("stlog frame self=%p idx=%lu active=%d cache=%lld zoom=%d", self,
+        axs_notchhome_diagLogF("stlog frame self=%p idx=%lu active=%d cache=%lld zoom=%d live=%d bounds=%d", self,
             (unsigned long)index, axs_notchhome_stateActive(state) ? 1 : 0,
             state ? (long long)state.startedAtHomeCache : -9,
-            axs_notchhome_isZoomIndex(self, index) ? 1 : 0);
+            axs_notchhome_isZoomIndex(self, index) ? 1 : 0,
+            axs_notchhome_liveIsEffectivelyHome(self) ? 1 : 0,
+            (state && state.cachedBoundsValid) ? 1 : 0);
     }
     if (!axs_notchhome_stateActive(state)) {
         return original;
@@ -372,7 +382,14 @@ static double axs_notchhome_hookScale(id self, SEL _cmd, NSUInteger index) {
     if (!axs_notchhome_liveIsEffectivelyHome(self)) {
         return original;
     }
-    if (!axs_notchhome_isTargetIndex(self, state, index)) {
+    // Parity fix (-47): the original's scale worker carries the same
+    // context step as frame/corner (reaudit section 1 #5: gate code
+    // isomorphic, incl. the 0x9dfc context + 0x6098 validation that
+    // cachedBoundsValid stands in for). -46's scale hook skipped the
+    // bounds check and set the latch anyway, so a leg whose window
+    // context was never captured could still get the notch scale
+    // (and latch the VC flips) where the original passes through.
+    if (!state.cachedBoundsValid || !axs_notchhome_isTargetIndex(self, state, index)) {
         return original;
     }
     state.notchCloseLatched = YES;
